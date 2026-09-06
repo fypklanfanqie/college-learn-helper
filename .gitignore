@@ -1,0 +1,30 @@
+# Build outputs
+build/
+app/build/
+*/build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Gradle
+.gradle/
+local.properties
+
+# Kotlin
+.kotlin/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# 迁移用的厂商源码/素材缓存（不入库）
+.vendor/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 运行时产物
+*.apk.idsig
+captures/
+.externalNativeBuild/
+.cxx/
