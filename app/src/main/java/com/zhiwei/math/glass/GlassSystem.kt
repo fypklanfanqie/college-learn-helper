@@ -8,32 +8,27 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.zhiwei.math.data.prefs.GlassSettings
-import kotlin.math.roundToInt
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.hazeSource
 
 /** 玻璃模式（决策 6）：毛玻璃默认；液态玻璃 API 33+ 可选；半透明为降级档 */
 enum class GlassMode(val label: String) {
@@ -58,6 +53,7 @@ data class GlassTuning(
 val LocalGlassMode = staticCompositionLocalOf { GlassMode.FROSTED }
 val LocalGlassTuning = staticCompositionLocalOf { GlassTuning() }
 val LocalIsDarkTheme = compositionLocalOf { false }
+val LocalHazeState = compositionLocalOf<HazeState?> { null }
 /** 震动反馈总开关（设置 → 震动），默认开启 */
 val LocalHapticsEnabled = compositionLocalOf { true }
 
@@ -75,13 +71,14 @@ fun resolveGlassMode(userModeId: String, sdkInt: Int = Build.VERSION.SDK_INT): G
 }
 
 /**
- * 应用级玻璃容器：极光背板（Backdrop.kt）+ 玻璃面板采样。
+ * 应用级玻璃容器：haze 真实内容模糊（本机实测稳定）+ 液态边缘装饰。
  *
- * 实测结论：HyperOS(Android 16) 定制 libhwui 对同层级 RenderNode 采样
- * （backdrop 库 drawBackdrop）会 RenderThread SIGSEGV；haze 的 offscreen blur 虽稳，
- * 但模糊半径等参数与本方案相比不够可调。故全面改用聊天终端安卓本地验证过的
- * 「程序化极光背板 + CPU 位图预模糊 + drawImage 采样」方案 —— 全设备稳定，
- * 模糊半径/饱和度/ veil 不透明度/高光描边全部由设置滑杆实时驱动。
+ * 实测结论（小米 2410DPN6CC / HyperOS Android 16 / Adreno 830）：
+ * - backdrop 库 drawBackdrop（任何效果）→ RenderThread SIGSEGV（MiBackgroundBlurBlend UAF）；
+ * - haze 的 offscreen blur（hazeSource + hazeEffect）→ 稳定，且底层真实内容透过玻璃可见
+ *   （参考应用同款观感）。
+ *
+ * 液态玻璃 = haze 真实内容模糊 + 液态高光光带 + 青/金色散双描边，四滑杆实时生效。
  */
 @Composable
 fun ProvideGlassContent(
@@ -89,6 +86,7 @@ fun ProvideGlassContent(
     isDark: Boolean,
     content: @Composable () -> Unit,
 ) {
+    val hazeState = remember { HazeState() }
     val mode = resolveGlassMode(glass.mode)
 
     androidx.compose.runtime.CompositionLocalProvider(
@@ -100,19 +98,21 @@ fun ProvideGlassContent(
             opacity = glass.opacity / 100f,
         ),
         LocalIsDarkTheme provides isDark,
+        LocalHazeState provides hazeState,
     ) {
-        GlassBackdrop {
-            Box { content() }
+        when (mode) {
+            GlassMode.PLAIN -> Box { content() }
+            else -> Box(Modifier.hazeSource(hazeState)) { content() }
         }
     }
 }
 
 /**
- * 玻璃表面修饰符：极光背板采样 + 白霜 veil + 顶部高光 + 边缘描边。
- * - 液态玻璃：更强的液态高光描边（宽度/亮度随「折射高度」滑杆）+ 更高背板饱和度
- * - 毛玻璃：标准顶部高光
- * - 半透明：纯 scrim（无背板）
- * 全部参数由 [LocalGlassTuning] 实时驱动。
+ * 玻璃表面修饰符：真实内容透过玻璃被模糊（haze），叠加液态边缘装饰。
+ * - 模糊半径滑杆 → haze 模糊半径（0 = 清晰透底）
+ * - 不透明度滑杆 → 着色 veil
+ * - 折射高度滑杆 → 液态光带宽度
+ * - 折射量滑杆 → 青/金色散双描边错位 + 顶部光泽
  */
 fun Modifier.appGlass(cornerRadius: Dp = 0.dp): Modifier = composed {
     val mode = LocalGlassMode.current
@@ -124,102 +124,80 @@ fun Modifier.appGlass(cornerRadius: Dp = 0.dp): Modifier = composed {
     when (mode) {
         GlassMode.PLAIN -> this.background(scrimColor, composeShape)
         else -> {
-            val backdrop = LocalBackdropState.current
-            val ok = backdrop != null && backdrop.isSameWindow(LocalView.current)
-            var bounds by remember { mutableStateOf<Rect?>(null) }
-
-            val veilColor = if (isDark) {
-                Color(0xFF1C1C22).copy(alpha = (tuning.opacity * 0.85f).coerceIn(0.04f, 0.88f))
+            val hazeState = LocalHazeState.current
+            // 模糊半径：0 = 清晰透底（与最大值对比强烈）
+            val blurDp = tuning.blurRadiusDp * 1.2f
+            val tintAlpha = (tuning.opacity * 0.7f).coerceIn(0.02f, 0.72f)
+            val tint = if (isDark) {
+                HazeTint(Color(0xFF1E1E26).copy(alpha = tintAlpha))
             } else {
-                Color(0xFFF4F4F8).copy(alpha = (tuning.opacity * 0.85f).coerceIn(0.04f, 0.88f))
+                HazeTint(Color(0xFFF7F7FB).copy(alpha = tintAlpha))
+            }
+            val base = if (hazeState != null) {
+                Modifier.hazeEffect(
+                    state = hazeState,
+                    style = HazeStyle(
+                        backgroundColor = MaterialTheme.colorScheme.surface,
+                        tints = listOf(tint),
+                        blurRadius = blurDp.dp,
+                    ),
+                )
+            } else {
+                Modifier.background(scrimColor, composeShape)
             }
             val isLiquid = mode == GlassMode.LIQUID
+            val bandPx = (2.2f + tuning.refractionHeightDp / 80f * 8.5f).dp // 折射光带宽度
+            val disp = tuning.refractionAmountDp / 96f * 3.2f               // 色散错位 dp
+            val dispAlpha = tuning.refractionAmountDp / 96f
+            val topSheen = if (isLiquid) 0.22f else 0.12f
 
             this
                 .clip(composeShape)
-                .onGloballyPositioned { bounds = it.boundsInRoot() }
+                .then(base)
                 .drawWithContent {
-                    val bmp = backdrop?.bitmap
-                    var drewBackdrop = false
-                    if (ok && bmp != null && bmp.width > 0 && bounds != null) {
-                        val b = bounds!!
-                        val s = backdrop.downscale
-                        // 面板在根坐标系下的区域 → 映射到背板位图（越界安全收窄）
-                        val cL = (b.left / s).coerceIn(0f, bmp.width.toFloat())
-                        val cT = (b.top / s).coerceIn(0f, bmp.height.toFloat())
-                        val cR = (b.right / s).coerceIn(0f, bmp.width.toFloat())
-                        val cB = (b.bottom / s).coerceIn(0f, bmp.height.toFloat())
-                        if (cR - cL > 1f && cB - cT > 1f) {
-                            drawImage(
-                                image = bmp,
-                                srcOffset = IntOffset(cL.roundToInt(), cT.roundToInt()),
-                                srcSize = IntSize((cR - cL).roundToInt(), (cB - cT).roundToInt()),
-                                dstOffset = IntOffset.Zero,
-                                dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()),
-                                filterQuality = FilterQuality.Low,
-                            )
-                            drewBackdrop = true
-                        }
-                    }
-                    if (drewBackdrop) {
-                        // 白霜 veil：让背板颜色透出时仍保持蒙眬与通透
-                        drawRect(veilColor)
-                    } else {
-                        // 背板不可用回退（跨窗口 Dialog/Sheet）：半透明叠层
-                        drawRect(scrimColor)
-                    }
                     drawContent()
-                    // 顶部高光（玻璃上缘环境光）
-                    val topSheen = if (isLiquid) 0.30f else 0.14f
+                    // 顶部环境光高光
                     drawRect(
                         Brush.verticalGradient(
                             0f to Color.White.copy(alpha = topSheen),
-                            0.25f to Color.Transparent,
+                            0.3f to Color.Transparent,
                             1f to Color.Transparent,
                         ),
                     )
-                    // 液态玻璃边缘：宽折射光带（宽度=折射高度滑杆）+ 色散双描边（错位=折射量滑杆）
                     if (isLiquid) {
-                        val bandPx = (2.2f + tuning.refractionHeightDp / 80f * 8.5f).dp.toPx() // 2.2..10.7dp
-                        val disp = (tuning.refractionAmountDp / 96f * 3.2f).dp.toPx()          // 0..3.2dp
-                        val dispAlpha = tuning.refractionAmountDp / 96f
                         val r = cornerRadius.toPx()
+                        val band = bandPx.toPx()
+                        val d = disp.dp.toPx()
                         // 冷色散：青蓝，向外扩
-                        if (disp > 0.3f) {
+                        if (d > 0.3f) {
                             drawRoundRect(
                                 color = Color(0xFF6EC1FF).copy(alpha = 0.10f + dispAlpha * 0.38f),
-                                topLeft = androidx.compose.ui.geometry.Offset(-disp, -disp),
-                                size = androidx.compose.ui.geometry.Size(
-                                    size.width + disp * 2f,
-                                    size.height + disp * 2f,
-                                ),
-                                cornerRadius = CornerRadius(r + disp, r + disp),
-                                style = Stroke(width = bandPx * 0.55f),
+                                topLeft = Offset(-d, -d),
+                                size = Size(size.width + d * 2f, size.height + d * 2f),
+                                cornerRadius = CornerRadius(r + d, r + d),
+                                style = Stroke(width = band * 0.55f),
                             )
                             // 暖色散：金橙，向内缩
                             drawRoundRect(
                                 color = Color(0xFFFFB27A).copy(alpha = 0.08f + dispAlpha * 0.32f),
-                                topLeft = androidx.compose.ui.geometry.Offset(disp, disp),
-                                size = androidx.compose.ui.geometry.Size(
-                                    size.width - disp * 2f,
-                                    size.height - disp * 2f,
-                                ),
-                                cornerRadius = CornerRadius((r - disp).coerceAtLeast(0f), (r - disp).coerceAtLeast(0f)),
-                                style = Stroke(width = bandPx * 0.55f),
+                                topLeft = Offset(d, d),
+                                size = Size(size.width - d * 2f, size.height - d * 2f),
+                                cornerRadius = CornerRadius((r - d).coerceAtLeast(0f), (r - d).coerceAtLeast(0f)),
+                                style = Stroke(width = band * 0.55f),
                             )
                         }
                         // 主液态高光带：顶部最亮、底部弱反光
                         drawRoundRect(
                             brush = Brush.verticalGradient(
                                 colors = listOf(
-                                    Color.White.copy(alpha = if (isDark) 0.55f else 0.80f),
-                                    Color.White.copy(alpha = if (isDark) 0.05f else 0.09f),
-                                    Color.White.copy(alpha = if (isDark) 0.05f else 0.09f),
-                                    Color.White.copy(alpha = if (isDark) 0.20f else 0.34f),
+                                    Color.White.copy(alpha = if (isDark) 0.50f else 0.75f),
+                                    Color.White.copy(alpha = 0.05f),
+                                    Color.White.copy(alpha = 0.05f),
+                                    Color.White.copy(alpha = if (isDark) 0.18f else 0.30f),
                                 ),
                             ),
                             cornerRadius = CornerRadius(r, r),
-                            style = Stroke(width = bandPx),
+                            style = Stroke(width = band),
                         )
                     }
                 }
