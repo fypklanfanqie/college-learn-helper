@@ -214,6 +214,7 @@ class ReportViewModel(
 @Composable
 fun ReportScreen(
     onBack: () -> Unit,
+    embedded: Boolean = false,
     viewModel: ReportViewModel = org.koin.androidx.compose.koinViewModel(),
 ) {
     val context = LocalContext.current
@@ -226,7 +227,12 @@ fun ReportScreen(
     var pickerOpen by remember { mutableStateOf(false) }
 
     Scaffold(
-        topBar = { TopAppBar(navigationIcon = { TextButton(onClick = onBack) { Text("返回") } }, title = { Text("学习报告") }) },
+        topBar = {
+            TopAppBar(
+                navigationIcon = { if (!embedded) TextButton(onClick = onBack) { Text("返回") } },
+                title = { Text("学习报告") },
+            )
+        },
     ) { padding ->
         Column(
             modifier = Modifier

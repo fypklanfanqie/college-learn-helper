@@ -60,6 +60,13 @@ class PracticeViewModel(
     fun setDifficulty(v: String) { difficulty.value = v }
     fun setAnswer(v: String) { answer.value = v }
 
+    /** 回到出题设置（嵌入式 AI练 页签中"完成"按钮使用） */
+    fun reset() {
+        stage.value = Stage.SETUP
+        answer.value = ""
+        reviewText.value = null
+    }
+
     fun cancel() {
         job?.cancel()
         streaming.value = false

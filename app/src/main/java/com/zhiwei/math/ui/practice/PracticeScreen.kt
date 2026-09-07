@@ -42,6 +42,7 @@ import java.util.Locale
 @Composable
 fun PracticeScreen(
     onBack: () -> Unit,
+    embedded: Boolean = false,
     viewModel: PracticeViewModel = koinViewModel(),
 ) {
     val stage by viewModel.stage.collectAsState()
@@ -60,10 +61,13 @@ fun PracticeScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                navigationIcon = { TextButton(onClick = onBack) { Text("返回") } },
-                title = { Text("练题") },
-            )
+            // 嵌入 AI练 页签时由外层提供标题与页签，隐藏自带顶栏
+            if (!embedded) {
+                TopAppBar(
+                    navigationIcon = { TextButton(onClick = onBack) { Text("返回") } },
+                    title = { Text("练题") },
+                )
+            }
         },
     ) { padding ->
         Column(
@@ -157,7 +161,9 @@ fun PracticeScreen(
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = viewModel::nextQuestion) { Text("下一题") }
-                        TextButton(onClick = onBack) { Text("完成") }
+                        TextButton(onClick = {
+                            if (embedded) viewModel.reset() else onBack()
+                        }) { Text("完成") }
                     }
                 }
             }

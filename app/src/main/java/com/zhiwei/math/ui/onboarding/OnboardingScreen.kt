@@ -81,6 +81,8 @@ fun OnboardingScreen(
                 protocol = state.protocol,
                 onProtocolChange = viewModel::setProtocol,
                 modelSuggestions = state.modelSuggestions,
+                supportsVision = state.supportsVision,
+                onSupportsVisionChange = viewModel::setSupportsVision,
             )
             if (state.error != null) {
                 Text(state.error!!, color = MaterialTheme.colorScheme.error)
@@ -135,6 +137,7 @@ class OnboardingViewModel(
     fun setModel(v: String) { state.value = state.value.copy(model = v) }
     fun setApiKey(v: String) { state.value = state.value.copy(apiKey = v) }
     fun setProtocol(v: Protocol) { state.value = state.value.copy(protocol = v) }
+    fun setSupportsVision(v: Boolean) { state.value = state.value.copy(supportsVision = v) }
 
     fun save(onFinished: () -> Unit) {
         viewModelScope.launch {

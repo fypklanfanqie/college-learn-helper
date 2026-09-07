@@ -58,14 +58,16 @@ object PromptAssembler {
         )
     }
 
-    /** 用户选中文字 → 追问标记（append-only 追加消息） */
+    /** 用户选中文字 → 追问标记（append-only 追加消息）；无选中文字时直接发送问题 */
     fun followUp(selectedText: String, question: String): LlmMessage =
         LlmMessage(
             LlmMessage.Role.USER,
             buildString {
-                append("【追问：")
-                append(selectedText.trim())
-                append("】")
+                if (selectedText.isNotBlank()) {
+                    append("【追问：")
+                    append(selectedText.trim().take(600))
+                    append("】")
+                }
                 if (question.isNotBlank()) {
                     append(question)
                 }

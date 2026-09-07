@@ -185,30 +185,47 @@ class ChatViewModel(
         sourceText: String? = null,
     ) {
         val sb = StringBuilder()
+        var lastEmitAt = 0L
         streamingText.value = ""
         job = viewModelScope.launch {
-            repo.sendAndStream(
-                convoId = convoId,
-                userText = userText,
-                imageBase64 = imageBase64,
-                imageMime = imageMime,
-                attachmentName = attachmentName,
-                extraMessages = extra,
-                sourceText = sourceText,
-            ).collect { event ->
-                when (event) {
-                    is LlmEvent.Delta -> {
-                        sb.append(event.text)
-                        streamingText.value = sb.toString()
+            try {
+                repo.sendAndStream(
+                    convoId = convoId,
+                    userText = userText,
+                    imageBase64 = imageBase64,
+                    imageMime = imageMime,
+                    attachmentName = attachmentName,
+                    extraMessages = extra,
+                    sourceText = sourceText,
+                ).collect { event ->
+                    when (event) {
+                        is LlmEvent.Delta -> {
+                            sb.append(event.text)
+                            // 流式文本 120ms 节流：降低高频 setState/重组；完成与出错时刷全量
+                            val now = android.os.SystemClock.elapsedRealtime()
+                            if (now - lastEmitAt >= 120) {
+                                lastEmitAt = now
+                                streamingText.value = sb.toString()
+                            }
+                        }
+                        is LlmEvent.Done -> {
+                            streamingText.value = sb.toString()
+                        }
+                        is LlmEvent.Error -> {
+                            streamingText.value = null
+                            notice.value = "出错了：${event.message}"
+                        }
+                        else -> Unit
                     }
-                    is LlmEvent.Error -> {
-                        streamingText.value = null
-                        notice.value = "出错了：${event.message}"
-                    }
-                    else -> Unit
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e // 用户主动停止
+            } catch (e: Exception) {
+                // 此前异常被静默吞掉 → 出例题/追问"点了没反应"。现在必须显式提示。
+                notice.value = "出错了：${e.message ?: e.javaClass.simpleName}"
+            } finally {
+                streamingText.value = null
             }
-            streamingText.value = null
         }
         job?.invokeOnCompletion {
             // 收集结束（正常/打断/异常）后清空流式状态；落库由仓库层 finally 负责

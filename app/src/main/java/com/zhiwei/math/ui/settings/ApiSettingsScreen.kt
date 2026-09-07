@@ -74,6 +74,8 @@ fun ApiSettingsScreen(
                 protocol = state.protocol,
                 onProtocolChange = viewModel::setProtocol,
                 modelSuggestions = state.modelSuggestions,
+                supportsVision = state.supportsVision,
+                onSupportsVisionChange = viewModel::setSupportsVision,
             )
             if (state.error != null) {
                 Text(state.error!!, color = MaterialTheme.colorScheme.error)
@@ -146,6 +148,7 @@ class ApiSettingsViewModel(
     fun setModel(v: String) { state.value = state.value.copy(model = v, saved = false) }
     fun setApiKey(v: String) { state.value = state.value.copy(apiKey = v, saved = false) }
     fun setProtocol(v: Protocol) { state.value = state.value.copy(protocol = v, saved = false) }
+    fun setSupportsVision(v: Boolean) { state.value = state.value.copy(supportsVision = v, saved = false) }
 
     fun save() {
         viewModelScope.launch {

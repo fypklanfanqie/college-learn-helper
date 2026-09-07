@@ -15,12 +15,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -48,7 +50,6 @@ import java.util.Locale
 @Composable
 fun ChatListScreen(
     onOpenChat: (Long) -> Unit,
-    onOpenSettings: () -> Unit,
     viewModel: ChatListViewModel = koinViewModel(),
 ) {
     val conversations by viewModel.conversations.collectAsStateWithLifecycle()
@@ -59,10 +60,7 @@ fun ChatListScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("知微数学") },
-                actions = {
-                    TextButton(onClick = onOpenSettings) { Text("设置") }
-                },
+                title = { Text("对话列表") },
             )
         },
         floatingActionButton = {
@@ -106,13 +104,22 @@ fun ChatListScreen(
                                 onLongClick = { menuFor = convo },
                             ),
                     ) {
-                        Column(Modifier.padding(14.dp)) {
-                            Text(convo.title, style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                "${dateFormat.format(Date(convo.updatedAt))} · ${modeLabel(convo.mode)}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                        Row(
+                            Modifier.padding(start = 14.dp, top = 6.dp, bottom = 6.dp, end = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(convo.title, style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    "${dateFormat.format(Date(convo.updatedAt))} · ${modeLabel(convo.mode)}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            // 可见的 ⋯ 入口（长按同样可用）
+                            IconButton(onClick = { menuFor = convo }) {
+                                Icon(Icons.Filled.MoreVert, contentDescription = "更多操作")
+                            }
                         }
                     }
                 }

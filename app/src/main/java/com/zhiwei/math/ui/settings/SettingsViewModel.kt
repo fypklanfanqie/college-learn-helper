@@ -31,6 +31,10 @@ class SettingsViewModel(private val settings: SettingsStore) : ViewModel() {
         viewModelScope.launch { settings.setAppearance(appearance.value.copy(chatBackgroundUri = uri)) }
     }
 
+    fun setHaptics(enabled: Boolean) {
+        viewModelScope.launch { settings.setAppearance(appearance.value.copy(haptics = enabled)) }
+    }
+
     fun setGlassMode(mode: GlassMode) {
         viewModelScope.launch {
             settings.setGlass(glass.value.copy(mode = mode.name.lowercase()))

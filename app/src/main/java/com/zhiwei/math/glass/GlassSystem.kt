@@ -12,6 +12,8 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Dp
@@ -56,6 +58,8 @@ val LocalGlassTuning = staticCompositionLocalOf { GlassTuning() }
 val LocalIsDarkTheme = compositionLocalOf { false }
 val LocalHazeState = compositionLocalOf<HazeState?> { null }
 val LocalLayerBackdrop = compositionLocalOf<LayerBackdrop?> { null }
+/** 震动反馈总开关（设置 → 震动），默认开启 */
+val LocalHapticsEnabled = compositionLocalOf { true }
 
 /**
  * 实际玻璃模式解析（决策 2 的 API 分档）：
@@ -78,9 +82,22 @@ fun ProvideGlassContent(
     content: @Composable () -> Unit,
 ) {
     val hazeState = remember { HazeState() }
-    val layerBackdrop = rememberLayerBackdrop()
     val mode = resolveGlassMode(glass.mode)
 
+    // 参照 Cresto/MainScreen：backdrop 先画一块 3 倍大的页面背景色再画内容，
+    // 玻璃表面在内容边界外采样时取页面背景色而非透明，避免玻璃边缘出现空洞/黑边。
+    val backdropBaseColor = MaterialTheme.colorScheme.background
+    val layerBackdrop = rememberLayerBackdrop {
+        drawRect(
+            color = backdropBaseColor,
+            size = Size(this.size.width * 3f, this.size.height * 3f),
+            topLeft = Offset(-this.size.width, -this.size.height),
+        )
+        drawContent()
+    }
+
+    // 关键修复：此前 LocalLayerBackdrop / LocalHazeState 从未被 provide，
+    // 所有玻璃表面都静默降级为纯色半透明矩形，滑杆参数无处生效。
     androidx.compose.runtime.CompositionLocalProvider(
         LocalGlassMode provides mode,
         LocalGlassTuning provides GlassTuning(
@@ -90,6 +107,8 @@ fun ProvideGlassContent(
             opacity = glass.opacity / 100f,
         ),
         LocalIsDarkTheme provides isDark,
+        LocalHazeState provides hazeState,
+        LocalLayerBackdrop provides layerBackdrop,
     ) {
         when (mode) {
             GlassMode.LIQUID -> {

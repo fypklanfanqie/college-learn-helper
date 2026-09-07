@@ -40,6 +40,8 @@ data class AppearanceSettings(
     val font: String = "misans",
     /** 聊天背景：空 = 默认；其他为图片 URI */
     val chatBackgroundUri: String = "",
+    /** 震动反馈开关（长按/按钮），默认开 */
+    val haptics: Boolean = true,
 )
 
 class SettingsStore(private val context: Context) {
@@ -60,6 +62,7 @@ class SettingsStore(private val context: Context) {
         val theme = stringPreferencesKey("theme")
         val font = stringPreferencesKey("font")
         val chatBackgroundUri = stringPreferencesKey("chat_background_uri")
+        val haptics = booleanPreferencesKey("haptics_enabled")
     }
 
     val onboardingDone: Flow<Boolean> = context.dataStore.data.map { it[Keys.onboardingDone] ?: false }
@@ -90,6 +93,7 @@ class SettingsStore(private val context: Context) {
             theme = p[Keys.theme] ?: "system",
             font = p[Keys.font] ?: "misans",
             chatBackgroundUri = p[Keys.chatBackgroundUri] ?: "",
+            haptics = p[Keys.haptics] ?: true,
         )
     }
 
@@ -123,6 +127,7 @@ class SettingsStore(private val context: Context) {
             p[Keys.theme] = settings.theme
             p[Keys.font] = settings.font
             p[Keys.chatBackgroundUri] = settings.chatBackgroundUri
+            p[Keys.haptics] = settings.haptics
         }
     }
 }

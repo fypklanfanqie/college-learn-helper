@@ -8,11 +8,20 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -34,7 +43,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -42,12 +50,14 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -87,8 +97,17 @@ fun ChatScreen(
     val appearance by settings.appearance.collectAsState(initial = com.zhiwei.math.data.prefs.AppearanceSettings())
 
     val listState = rememberLazyListState()
+    // 自动滚动修复：仅当用户位于列表底部附近时才跟随新内容滚动；
+    // 用户向上翻阅历史时不再被强制拉回底部。
+    val nearBottom by remember {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: 0
+            lastVisible >= info.totalItemsCount - 2
+        }
+    }
     LaunchedEffect(messages.size, streamingText) {
-        if (messages.isNotEmpty() || streamingText != null) {
+        if ((messages.isNotEmpty() || streamingText != null) && nearBottom) {
             listState.animateScrollToItem((messages.size.coerceAtLeast(1)) - 1)
         }
     }
@@ -135,102 +154,36 @@ fun ChatScreen(
         }
     }
 
-    Scaffold(
-        containerColor = Color.Transparent,
-        topBar = {
-            // 玻璃顶栏（毛玻璃默认 / 液态玻璃 / 半透明降级）
-            GlassSurface {
-                TopAppBar(
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Transparent,
-                        navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
-                        titleContentColor = MaterialTheme.colorScheme.onSurface,
-                        actionIconContentColor = MaterialTheme.colorScheme.onSurface,
-                    ),
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
-                        }
-                    },
-                    title = {
-                        Column {
-                            Text(conversation?.title ?: "对话", style = MaterialTheme.typography.titleMedium)
-                            Text("高等数学 · 宋老师", style = MaterialTheme.typography.labelSmall)
-                        }
-                    },
-                    actions = {
-                        ModeSwitchChip(
-                            current = conversation?.mode ?: "DETAIL",
-                            onSwitch = viewModel::switchMode,
-                        )
-                        IconButton(onClick = { topMenuOpen = true }) {
-                            Icon(Icons.Filled.MoreVert, contentDescription = "更多")
-                        }
-                        DropdownMenu(expanded = topMenuOpen, onDismissRequest = { topMenuOpen = false }) {
-                            DropdownMenuItem(
-                                text = { Text("重命名对话") },
-                                onClick = { topMenuOpen = false; showRename = true },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("对话设置（考试重点/老师风格…）") },
-                                onClick = { topMenuOpen = false; onOpenConvoSettings() },
-                            )
-                        }
-                    },
-                )
-            }
-        },
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .imePadding(),
-        ) {
-            notice?.let { msg ->
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f)
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 4.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(msg, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-                        TextButton(onClick = viewModel::dismissNotice) { Text("知道了") }
-                    }
+    // 悬浮覆盖布局（参照 Cresto）：内容铺满全屏，玻璃顶栏/输入条浮在内容上方，
+    // 消息从玻璃面板下方滚过 —— 液态玻璃才有东西可折射。
+    Box(Modifier.fillMaxSize()) {
+        // 底层：背景图 + 消息列表
+        Box(Modifier.fillMaxSize()) {
+            // 聊天背景图（设置 → 外观 → 聊天背景）
+            appearance.chatBackgroundUri.takeIf { it.isNotBlank() }?.let { bgUri ->
+                val bgBmp = remember(bgUri) { ImageUtils.loadScaledBitmap(context, Uri.parse(bgUri)) }
+                bgBmp?.let {
+                    Image(
+                        bitmap = it.asImageBitmap(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
                 }
             }
-
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                contentPadding = PaddingValues(
+                    top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 76.dp,
+                    bottom = 140.dp,
+                ),
             ) {
-                // 聊天背景图（设置 → 外观 → 聊天背景）
-                appearance.chatBackgroundUri.takeIf { it.isNotBlank() }?.let { bgUri ->
-                    val bgBmp = remember(bgUri) { ImageUtils.loadScaledBitmap(context, Uri.parse(bgUri)) }
-                    bgBmp?.let {
-                        Image(
-                            bitmap = it.asImageBitmap(),
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-                }
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
                 items(messages, key = { it.id }) { message ->
                     MessageBubble(
                         message = message,
+                        actionsEnabled = streamingText == null,
                         onFollowUp = { quoted -> showFollowUpFor = quoted },
                         onDetailedSolution = viewModel::detailedSolution,
                         onHighlight = viewModel::highlight,
@@ -257,16 +210,107 @@ fun ChatScreen(
                     }
                 }
             }
-            }
+        }
 
+        // 浮层：错误提示条（顶栏下方）
+        notice?.let { msg ->
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f)
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp)
+                    .align(Alignment.TopCenter)
+                    .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 66.dp),
+            ) {
+                Row(
+                    modifier = Modifier.padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(msg, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                    TextButton(onClick = viewModel::dismissNotice) { Text("知道了") }
+                }
+            }
+        }
+
+        // 浮层：玻璃顶栏（毛玻璃默认 / 液态玻璃 / 半透明降级）
+        GlassSurface(Modifier.fillMaxWidth().align(Alignment.TopCenter)) {
+            TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    actionIconContentColor = MaterialTheme.colorScheme.onSurface,
+                ),
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                },
+                title = {
+                    Column {
+                        Text(conversation?.title ?: "对话", style = MaterialTheme.typography.titleMedium)
+                        Text("高等数学 · 宋老师", style = MaterialTheme.typography.labelSmall)
+                    }
+                },
+                actions = {
+                    ModeSwitchChip(
+                        current = conversation?.mode ?: "DETAIL",
+                        onSwitch = viewModel::switchMode,
+                    )
+                    IconButton(onClick = { topMenuOpen = true }) {
+                        Icon(Icons.Filled.MoreVert, contentDescription = "更多")
+                    }
+                    DropdownMenu(expanded = topMenuOpen, onDismissRequest = { topMenuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text("重命名对话") },
+                            onClick = { topMenuOpen = false; showRename = true },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("对话设置（考试重点/老师风格…）") },
+                            onClick = { topMenuOpen = false; onOpenConvoSettings() },
+                        )
+                    }
+                },
+            )
+        }
+
+        // 浮层：底部输入区（safeDrawing Bottom 同时覆盖导航栏与 IME，取最大值）
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
+                .padding(horizontal = 12.dp),
+        ) {
             pendingImage?.let { (b64, _) ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp),
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("🖼 已附加图片（长边 1280）", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+                    // 附件缩略图：让用户确认图片确实已附加
+                    val previewBmp = remember(b64) {
+                        runCatching {
+                            val raw = android.util.Base64.decode(b64, android.util.Base64.NO_WRAP)
+                            android.graphics.BitmapFactory.decodeByteArray(raw, 0, raw.size)
+                        }.getOrNull()
+                    }
+                    previewBmp?.let {
+                        Image(
+                            bitmap = it.asImageBitmap(),
+                            contentDescription = "待发送图片",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .padding(end = 8.dp)
+                                .height(44.dp)
+                                .width(44.dp)
+                                .clip(RoundedCornerShape(8.dp)),
+                        )
+                    }
+                    Text("已附加图片（长边 1280）", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
                     TextButton(onClick = viewModel::clearPendingImage) { Text("移除") }
                 }
             }

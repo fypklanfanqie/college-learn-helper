@@ -21,18 +21,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 /**
- * 科目选择「你要学什么」（冷启动首屏）：V1 仅高等数学可用，线代/概率论"即将上线"置灰。
+ * 科目选择「你要学什么」（主页页签）：V1 仅高等数学可用，线代/概率论"即将上线"置灰。
  */
 @Composable
 fun SubjectScreen(
     onStartMath: () -> Unit,
-    onOpenSettings: () -> Unit,
+    onOpenSettings: () -> Unit = {},
+    embedded: Boolean = false,
 ) {
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("知微数学") },
-                actions = { TextButton(onClick = onOpenSettings) { Text("设置") } },
+                actions = {
+                    if (!embedded) TextButton(onClick = onOpenSettings) { Text("设置") }
+                },
             )
         },
     ) { padding ->

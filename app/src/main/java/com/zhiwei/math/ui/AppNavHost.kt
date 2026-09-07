@@ -1,20 +1,11 @@
 package com.zhiwei.math.ui
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import com.zhiwei.math.data.prefs.SettingsStore
 import com.zhiwei.math.glass.popEnter
 import com.zhiwei.math.glass.popExit
@@ -23,29 +14,19 @@ import com.zhiwei.math.glass.pushExit
 import com.zhiwei.math.ui.chat.ChatScreen
 import com.zhiwei.math.ui.chatlist.ChatListScreen
 import com.zhiwei.math.ui.convoSettings.ConvoSettingsScreen
-import com.zhiwei.math.ui.misc.ExampleBookScreen
-import com.zhiwei.math.ui.misc.HighlightsScreen
+import com.zhiwei.math.ui.main.MainScaffold
 import com.zhiwei.math.ui.onboarding.OnboardingScreen
-import com.zhiwei.math.ui.practice.PracticeScreen
-import com.zhiwei.math.ui.report.ReportScreen
 import com.zhiwei.math.ui.settings.ApiSettingsScreen
-import com.zhiwei.math.ui.settings.SettingsScreen
-import com.zhiwei.math.ui.subject.SubjectScreen
 import com.zhiwei.math.ui.tutorial.TutorialScreen
 import org.koin.compose.koinInject
 
-/** 路由表（各页面在后续阶段填充真实实现） */
+/** 路由表：MAIN 为 dock 主界面；对话/对话设置/API/教程为 push 详情页 */
 object Routes {
     const val ONBOARDING = "onboarding"
-    const val SUBJECT = "subject"
+    const val MAIN = "main"
     const val CHAT_LIST = "chat_list"
     const val CHAT = "chat/{convoId}"
     const val CONVO_SETTINGS = "convo_settings/{convoId}"
-    const val PRACTICE = "practice"
-    const val EXAMPLE_BOOK = "example_book"
-    const val HIGHLIGHTS = "highlights"
-    const val REPORT = "report"
-    const val SETTINGS = "settings"
     const val API_SETTINGS = "api_settings"
     const val TUTORIAL = "tutorial"
 
@@ -61,7 +42,7 @@ fun AppNavHost(settings: SettingsStore = koinInject()) {
     val startDestination = when (onboardingDone) {
         null -> null
         false -> Routes.ONBOARDING
-        true -> Routes.SUBJECT
+        true -> Routes.MAIN
     }
 
     val nav = startDestination ?: return
@@ -78,22 +59,23 @@ fun AppNavHost(settings: SettingsStore = koinInject()) {
         composable(Routes.ONBOARDING) {
             OnboardingScreen(
                 onFinished = {
-                    navController.navigate(Routes.SUBJECT) {
+                    navController.navigate(Routes.MAIN) {
                         popUpTo(Routes.ONBOARDING) { inclusive = true }
                     }
                 }
             )
         }
-        composable(Routes.SUBJECT) {
-            SubjectScreen(
-                onStartMath = { navController.navigate(Routes.CHAT_LIST) },
-                onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+        composable(Routes.MAIN) {
+            MainScaffold(
+                onOpenChatList = { navController.navigate(Routes.CHAT_LIST) },
+                onOpenChat = { convoId -> navController.navigate(Routes.chat(convoId)) },
+                onOpenApiSettings = { navController.navigate(Routes.API_SETTINGS) },
+                onOpenTutorial = { navController.navigate(Routes.TUTORIAL) },
             )
         }
         composable(Routes.CHAT_LIST) {
             ChatListScreen(
                 onOpenChat = { convoId -> navController.navigate(Routes.chat(convoId)) },
-                onOpenSettings = { navController.navigate(Routes.SETTINGS) },
             )
         }
         composable(Routes.CHAT) { entry ->
@@ -108,45 +90,9 @@ fun AppNavHost(settings: SettingsStore = koinInject()) {
         composable(Routes.CONVO_SETTINGS) { entry ->
             ConvoSettingsScreen(onBack = { navController.popBackStack() })
         }
-        composable(Routes.PRACTICE) { PracticeScreen(onBack = { navController.popBackStack() }) }
-        composable(Routes.EXAMPLE_BOOK) {
-            ExampleBookScreen(
-                onBack = { navController.popBackStack() },
-                onOpenChat = { convoId ->
-                    navController.navigate(Routes.chat(convoId))
-                },
-            )
-        }
-        composable(Routes.HIGHLIGHTS) { HighlightsScreen(onBack = { navController.popBackStack() }) }
-        composable(Routes.REPORT) { ReportScreen(onBack = { navController.popBackStack() }) }
-        composable(Routes.SETTINGS) {
-            SettingsScreen(
-                onBack = { navController.popBackStack() },
-                onOpenApiSettings = { navController.navigate(Routes.API_SETTINGS) },
-                onOpenPractice = { navController.navigate(Routes.PRACTICE) },
-                onOpenExampleBook = { navController.navigate(Routes.EXAMPLE_BOOK) },
-                onOpenHighlights = { navController.navigate(Routes.HIGHLIGHTS) },
-                onOpenReport = { navController.navigate(Routes.REPORT) },
-                onOpenTutorial = { navController.navigate(Routes.TUTORIAL) },
-            )
-        }
         composable(Routes.API_SETTINGS) {
             ApiSettingsScreen(onBack = { navController.popBackStack() })
         }
         composable(Routes.TUTORIAL) { TutorialScreen(onBack = { navController.popBackStack() }) }
-    }
-}
-
-@Composable
-private fun Placeholder(label: String) {
-    Scaffold { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(label, style = MaterialTheme.typography.titleMedium)
-        }
     }
 }

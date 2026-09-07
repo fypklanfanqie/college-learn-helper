@@ -10,20 +10,24 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -34,13 +38,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mikepenz.markdown.m3.Markdown
 import com.zhiwei.math.data.db.MessageEntity
+import com.zhiwei.math.glass.LocalHapticsEnabled
 import com.zhiwei.math.prompt.ExampleData
 import com.zhiwei.math.prompt.ExampleParser
 import com.zhiwei.math.util.MathTextSplitter
@@ -48,13 +59,15 @@ import com.zhiwei.math.util.TextSegment
 
 /**
  * 消息气泡：用户（右侧）/ 老师（左侧，Markdown+LaTeX）/ 模式切换系统提示 / 例题卡片。
- * 长按老师气泡弹出菜单：复制全文 / 追问 / 划重点。
+ * 长按老师气泡（带震动反馈）→ 底部选择面板：圈选一段文字后可 追问 / 划重点 / 复制（只对选中文字生效）。
+ * 用户追问消息渲染为豆包式引用卡片（摘录 + 问题），不再展示全文。
  */
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun MessageBubble(
     message: MessageEntity,
     isStreamingPlaceholder: Boolean = false,
+    actionsEnabled: Boolean = true,
     onFollowUp: (quotedText: String) -> Unit,
     onDetailedSolution: () -> Unit,
     onHighlight: (source: String) -> Unit,
@@ -77,9 +90,46 @@ fun MessageBubble(
         return
     }
 
+    // 追问消息 → 豆包式引用卡片（摘录 + 问题），不展示全文
+    if (message.role == "user" && message.content.startsWith("【追问：")) {
+        val rest = message.content.removePrefix("【追问：")
+        val closeIdx = rest.indexOf("】")
+        val quoted = if (closeIdx >= 0) rest.take(closeIdx) else rest
+        val question = if (closeIdx >= 0 && closeIdx + 1 < rest.length) rest.substring(closeIdx + 1).trim() else ""
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.End,
+        ) {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
+                ),
+                shape = MaterialTheme.shapes.large,
+                modifier = Modifier.widthIn(max = 310.dp),
+            ) {
+                Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        quoted,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (question.isNotBlank()) {
+                        Text(question, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+        }
+        return
+    }
+
     val isUser = message.role == "user"
-    val menuOpen = remember { mutableStateOf(false) }
-    val clipboard = LocalClipboardManager.current
+    val hapticsEnabled = LocalHapticsEnabled.current
+    val haptic = LocalHapticFeedback.current
+    var showTextPicker by remember { mutableStateOf(false) }
 
     Row(
         modifier = Modifier
@@ -93,7 +143,14 @@ fun MessageBubble(
                     .widthIn(max = 310.dp)
                     .combinedClickable(
                         onClick = {},
-                        onLongClick = { if (!isUser) menuOpen.value = true },
+                        onLongClick = {
+                            if (!isUser && !isStreamingPlaceholder) {
+                                if (hapticsEnabled) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                }
+                                showTextPicker = true
+                            }
+                        },
                     ),
             ) {
                 BubbleCard(isUser = isUser) {
@@ -124,43 +181,108 @@ fun MessageBubble(
                     }
                 }
 
-                // 回答下方按钮组：删除｜追问｜详细解答｜划重点｜出例题
+                // 回答下方按钮组：删除｜追问｜详细解答｜出例题（划重点改为长按圈选，不再整段）
+                // 流式进行中禁用（此前静默 return 导致"点了没反应"，现在按钮明确置灰）
                 if (!isUser && !isStreamingPlaceholder && message.content.isNotBlank()) {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(2.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        ActionText("删除") { onDelete(message) }
-                        ActionText("追问") { onFollowUp(message.content) }
-                        ActionText("详细解答") { onDetailedSolution() }
-                        ActionText("划重点") { onHighlight(message.content) }
-                        ActionText("出例题") { onAskExample() }
+                        ActionText("删除", enabled = actionsEnabled) { onDelete(message) }
+                        ActionText("追问", enabled = actionsEnabled) { onFollowUp("") }
+                        ActionText("详细解答", enabled = actionsEnabled) { onDetailedSolution() }
+                        ActionText("出例题", enabled = actionsEnabled) { onAskExample() }
                     }
                 }
             }
+        }
+    }
 
-            DropdownMenu(expanded = menuOpen.value, onDismissRequest = { menuOpen.value = false }) {
-                DropdownMenuItem(
-                    text = { Text("复制全文") },
+    // 选择面板：圈选一段文字 → 追问 / 划重点 / 复制（只对选中文字生效）
+    if (showTextPicker) {
+        TextSelectionSheet(
+            text = message.content,
+            onDismiss = { showTextPicker = false },
+            onFollowUp = { selected ->
+                showTextPicker = false
+                onFollowUp(selected)
+            },
+            onHighlight = { selected ->
+                showTextPicker = false
+                onHighlight(selected)
+            },
+        )
+    }
+}
+
+/**
+ * 文字选择面板：只读可圈选文本（原生长按手势在按压位置起选，可拖动调整句柄），
+ * 下方操作条只作用于选中的文字。参照豆包"引用"交互。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TextSelectionSheet(
+    text: String,
+    onDismiss: () -> Unit,
+    onFollowUp: (selected: String) -> Unit,
+    onHighlight: (selected: String) -> Unit,
+) {
+    var value by remember { mutableStateOf(TextFieldValue(text, TextRange(text.length))) }
+    val clipboard = LocalClipboardManager.current
+    val haptic = LocalHapticFeedback.current
+    val hapticsEnabled = LocalHapticsEnabled.current
+    val selectedText = remember(value.selection, value.text) {
+        if (value.selection.collapsed) "" else {
+            val s = value.selection.min.coerceIn(0, value.text.length)
+            val e = value.selection.max.coerceIn(0, value.text.length)
+            value.text.substring(s, e)
+        }
+    }
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("长按文字选择一段（引用最多 600 字）", style = MaterialTheme.typography.titleSmall)
+            BasicTextField(
+                value = value,
+                onValueChange = { value = it },
+                readOnly = true,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                    color = MaterialTheme.colorScheme.onSurface,
+                ),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 360.dp)
+                    .verticalScroll(rememberScrollState()),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
                     onClick = {
-                        menuOpen.value = false
-                        clipboard.setText(AnnotatedString(message.content))
+                        clipboard.setText(AnnotatedString(selectedText.ifBlank { text }))
                     },
-                )
-                DropdownMenuItem(
-                    text = { Text("针对这段追问") },
+                    enabled = true,
+                ) { Text(if (selectedText.isBlank()) "复制全文" else "复制所选") }
+                Spacer(Modifier.weight(1f))
+                Button(
                     onClick = {
-                        menuOpen.value = false
-                        onFollowUp(message.content)
+                        if (hapticsEnabled) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onFollowUp(selectedText.take(600))
                     },
-                )
-                DropdownMenuItem(
-                    text = { Text("划重点") },
+                    enabled = selectedText.isNotBlank(),
+                ) { Text("追问") }
+                Button(
                     onClick = {
-                        menuOpen.value = false
-                        onHighlight(message.content)
+                        if (hapticsEnabled) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onHighlight(selectedText.take(1200))
                     },
-                )
+                    enabled = selectedText.isNotBlank(),
+                ) { Text("划重点") }
             }
         }
     }
@@ -199,9 +321,10 @@ fun AssistantContent(content: String) {
 }
 
 @Composable
-fun ActionText(label: String, onClick: () -> Unit) {
+fun ActionText(label: String, enabled: Boolean = true, onClick: () -> Unit) {
     TextButton(
         onClick = onClick,
+        enabled = enabled,
         contentPadding = PaddingValues(horizontal = 6.dp),
     ) {
         Text(label, style = MaterialTheme.typography.labelMedium)
@@ -252,7 +375,7 @@ fun ExampleCard(
     }
 }
 
-/** 追问对话框：引用原文 + 补充问题 */
+/** 追问对话框：有引用时展示摘录，无引用时直接提问 */
 @Composable
 fun FollowUpDialog(
     quotedText: String,
@@ -265,16 +388,18 @@ fun FollowUpDialog(
         title = { Text("追问") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    quotedText.take(160) + if (quotedText.length > 160) "…" else "",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 4,
-                )
+                if (quotedText.isNotBlank()) {
+                    Text(
+                        "引用：" + quotedText.take(120) + if (quotedText.length > 120) "…" else "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 3,
+                    )
+                }
                 OutlinedTextField(
                     value = question,
                     onValueChange = { question = it },
-                    placeholder = { Text("想针对哪一点继续深入？") },
+                    placeholder = { Text(if (quotedText.isBlank()) "想继续问什么？" else "想针对引用的哪一点深入？") },
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 2,
                 )

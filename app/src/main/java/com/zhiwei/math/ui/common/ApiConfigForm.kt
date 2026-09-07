@@ -12,6 +12,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -64,6 +65,8 @@ fun ApiConfigForm(
     protocol: Protocol,
     onProtocolChange: (Protocol) -> Unit,
     modelSuggestions: List<String>,
+    supportsVision: Boolean,
+    onSupportsVisionChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -106,5 +109,43 @@ fun ApiConfigForm(
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
         )
+
+        // 用户处方：填写 API 时显式声明是否支持视觉输入。
+        // 开 → 拍照/选图直接把图片发给模型；关 → 本地 OCR 提取文字后发送。
+        val modelLooksTextOnly = model.lowercase().contains("deepseek") &&
+            !model.lowercase().contains("vision")
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            ),
+        ) {
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("支持视觉输入", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            if (supportsVision) {
+                                "开：拍照/选图直接发给模型识别（需视觉模型）"
+                            } else {
+                                "关：图片用本地 OCR 提取文字（数学公式效果差）"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (supportsVision && modelLooksTextOnly) {
+                            Text(
+                                "⚠ 模型「$model」疑似不支持视觉，建议改用 *-vision 型号或关闭此开关",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                    Switch(
+                        checked = supportsVision,
+                        onCheckedChange = onSupportsVisionChange,
+                    )
+                }
+            }
+        }
     }
 }

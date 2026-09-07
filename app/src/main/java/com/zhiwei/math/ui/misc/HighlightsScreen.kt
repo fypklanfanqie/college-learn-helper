@@ -52,13 +52,19 @@ class HighlightsViewModel(private val repo: ChatRepository) : ViewModel() {
 @Composable
 fun HighlightsScreen(
     onBack: () -> Unit,
+    embedded: Boolean = false,
     viewModel: HighlightsViewModel = koinViewModel(),
 ) {
     val highlights by viewModel.highlights.collectAsStateWithLifecycle()
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
 
     Scaffold(
-        topBar = { TopAppBar(navigationIcon = { TextButton(onClick = onBack) { Text("返回") } }, title = { Text("划重点") }) },
+        topBar = {
+            TopAppBar(
+                navigationIcon = { if (!embedded) TextButton(onClick = onBack) { Text("返回") } },
+                title = { Text("学习重点") },
+            )
+        },
     ) { padding ->
         if (highlights.isEmpty()) {
             EmptyHint("还没有划过重点。\n在聊天里长按老师的回答 → 划重点。", Modifier.padding(padding))
@@ -112,13 +118,22 @@ class ExampleBookViewModel(private val repo: ChatRepository) : ViewModel() {
 fun ExampleBookScreen(
     onBack: () -> Unit,
     onOpenChat: (Long) -> Unit,
+    embedded: Boolean = false,
     viewModel: ExampleBookViewModel = koinViewModel(),
 ) {
     val examples by viewModel.examples.collectAsStateWithLifecycle()
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
 
     Scaffold(
-        topBar = { TopAppBar(navigationIcon = { TextButton(onClick = onBack) { Text("返回") } }, title = { Text("例题本") }) },
+        topBar = {
+            // 嵌入 AI练 页签时由外层提供标题与页签，隐藏自带顶栏
+            if (!embedded) {
+                TopAppBar(
+                    navigationIcon = { TextButton(onClick = onBack) { Text("返回") } },
+                    title = { Text("例题本") },
+                )
+            }
+        },
     ) { padding ->
         if (examples.isEmpty()) {
             EmptyHint("例题本还是空的。\n聊天里点「出例题」，例题卡片下可加入例题本。", Modifier.padding(padding))

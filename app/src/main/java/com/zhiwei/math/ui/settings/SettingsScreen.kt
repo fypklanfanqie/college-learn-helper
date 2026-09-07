@@ -26,6 +26,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -60,11 +61,8 @@ import org.koin.androidx.compose.koinViewModel
 fun SettingsScreen(
     onBack: () -> Unit,
     onOpenApiSettings: () -> Unit,
-    onOpenPractice: () -> Unit,
-    onOpenExampleBook: () -> Unit,
-    onOpenHighlights: () -> Unit,
-    onOpenReport: () -> Unit,
     onOpenTutorial: () -> Unit,
+    embedded: Boolean = false,
     viewModel: SettingsViewModel = koinViewModel(),
 ) {
     val appearance by viewModel.appearance.collectAsStateWithLifecycle()
@@ -77,7 +75,7 @@ fun SettingsScreen(
         topBar = {
             TopAppBar(
                 navigationIcon = {
-                    TextButton(onClick = onBack) { Text("返回") }
+                    if (!embedded) TextButton(onClick = onBack) { Text("返回") }
                 },
                 title = { Text("设置") },
             )
@@ -121,6 +119,13 @@ fun SettingsScreen(
                     if (appearance.chatBackgroundUri.isNotBlank()) {
                         TextButton(onClick = { viewModel.setChatBackground("") }) { Text("清除") }
                     }
+                }
+                HorizontalDivider()
+                RowSetting("震动反馈") {
+                    Switch(
+                        checked = appearance.haptics,
+                        onCheckedChange = { viewModel.setHaptics(it) },
+                    )
                 }
             }
 
@@ -175,14 +180,6 @@ fun SettingsScreen(
             // ── 功能 ─────────────────────────────────────────────
             SectionTitle("功能")
             GroupCard {
-                RowSetting("练题") { TextButton(onClick = onOpenPractice) { Text("进入") } }
-                HorizontalDivider()
-                RowSetting("例题本") { TextButton(onClick = onOpenExampleBook) { Text("进入") } }
-                HorizontalDivider()
-                RowSetting("划重点") { TextButton(onClick = onOpenHighlights) { Text("进入") } }
-                HorizontalDivider()
-                RowSetting("学习报告") { TextButton(onClick = onOpenReport) { Text("进入") } }
-                HorizontalDivider()
                 RowSetting("使用教程") { TextButton(onClick = onOpenTutorial) { Text("进入") } }
             }
 
