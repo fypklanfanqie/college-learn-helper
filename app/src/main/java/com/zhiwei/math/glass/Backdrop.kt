@@ -180,7 +180,10 @@ private fun renderBackdrop(
     }
 
     val blurPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        maskFilter = BlurMaskFilter(blurRadiusPx, BlurMaskFilter.Blur.NORMAL)
+        // 模糊半径极小时跳过模糊（锐利光斑，滑杆到 0 有明显对比）
+        if (blurRadiusPx > 0.4f) {
+            maskFilter = BlurMaskFilter(blurRadiusPx, BlurMaskFilter.Blur.NORMAL)
+        }
         colorFilter = ColorMatrixColorFilter(saturationMatrix(saturation))
     }
     val blurCanvas = android.graphics.Canvas(blurBitmap)
@@ -220,9 +223,10 @@ fun GlassBackdrop(
     val density = LocalDensity.current
     val view = LocalView.current
 
-    // 背板模糊半径 = 设置的模糊半径（除以 downscale 等效换算）；折射量映射为背板饱和度
-    val blurRadiusPx = with(density) { tuning.blurRadiusDp.dp.toPx() } / state.downscale
-    val saturation = (1f + tuning.refractionAmountDp / 96f * 0.8f).coerceIn(0.8f, 1.8f)
+    // 背板模糊半径 = 设置的模糊半径 ×1.6 增强（除以 downscale 等效换算）；
+    // 折射量映射为背板饱和度
+    val blurRadiusPx = with(density) { (tuning.blurRadiusDp * 1.6f).dp.toPx() } / state.downscale
+    val saturation = (1f + tuning.refractionAmountDp / 96f * 0.9f).coerceIn(0.7f, 1.9f)
 
     val transition = rememberInfiniteTransition(label = "mesh")
     val phase = transition.animateFloat(

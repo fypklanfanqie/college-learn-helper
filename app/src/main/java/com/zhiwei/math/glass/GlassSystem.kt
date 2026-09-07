@@ -129,13 +129,11 @@ fun Modifier.appGlass(cornerRadius: Dp = 0.dp): Modifier = composed {
             var bounds by remember { mutableStateOf<Rect?>(null) }
 
             val veilColor = if (isDark) {
-                Color(0xFF1C1C22).copy(alpha = (tuning.opacity * 0.52f).coerceIn(0.12f, 0.75f))
+                Color(0xFF1C1C22).copy(alpha = (tuning.opacity * 0.85f).coerceIn(0.04f, 0.88f))
             } else {
-                Color(0xFFF4F4F8).copy(alpha = (tuning.opacity * 0.52f).coerceIn(0.12f, 0.75f))
+                Color(0xFFF4F4F8).copy(alpha = (tuning.opacity * 0.85f).coerceIn(0.04f, 0.88f))
             }
             val isLiquid = mode == GlassMode.LIQUID
-            val rimWidth = (0.9f + tuning.refractionHeightDp / 80f * 1.8f).dp
-            val topSheen = if (isLiquid) 0.28f else 0.14f
 
             this
                 .clip(composeShape)
@@ -172,6 +170,7 @@ fun Modifier.appGlass(cornerRadius: Dp = 0.dp): Modifier = composed {
                     }
                     drawContent()
                     // 顶部高光（玻璃上缘环境光）
+                    val topSheen = if (isLiquid) 0.30f else 0.14f
                     drawRect(
                         Brush.verticalGradient(
                             0f to Color.White.copy(alpha = topSheen),
@@ -179,19 +178,48 @@ fun Modifier.appGlass(cornerRadius: Dp = 0.dp): Modifier = composed {
                             1f to Color.Transparent,
                         ),
                     )
-                    // 液态玻璃：全周液态高光描边（宽度/亮度随折射高度滑杆）
+                    // 液态玻璃边缘：宽折射光带（宽度=折射高度滑杆）+ 色散双描边（错位=折射量滑杆）
                     if (isLiquid) {
+                        val bandPx = (2.2f + tuning.refractionHeightDp / 80f * 8.5f).dp.toPx() // 2.2..10.7dp
+                        val disp = (tuning.refractionAmountDp / 96f * 3.2f).dp.toPx()          // 0..3.2dp
+                        val dispAlpha = tuning.refractionAmountDp / 96f
+                        val r = cornerRadius.toPx()
+                        // 冷色散：青蓝，向外扩
+                        if (disp > 0.3f) {
+                            drawRoundRect(
+                                color = Color(0xFF6EC1FF).copy(alpha = 0.10f + dispAlpha * 0.38f),
+                                topLeft = androidx.compose.ui.geometry.Offset(-disp, -disp),
+                                size = androidx.compose.ui.geometry.Size(
+                                    size.width + disp * 2f,
+                                    size.height + disp * 2f,
+                                ),
+                                cornerRadius = CornerRadius(r + disp, r + disp),
+                                style = Stroke(width = bandPx * 0.55f),
+                            )
+                            // 暖色散：金橙，向内缩
+                            drawRoundRect(
+                                color = Color(0xFFFFB27A).copy(alpha = 0.08f + dispAlpha * 0.32f),
+                                topLeft = androidx.compose.ui.geometry.Offset(disp, disp),
+                                size = androidx.compose.ui.geometry.Size(
+                                    size.width - disp * 2f,
+                                    size.height - disp * 2f,
+                                ),
+                                cornerRadius = CornerRadius((r - disp).coerceAtLeast(0f), (r - disp).coerceAtLeast(0f)),
+                                style = Stroke(width = bandPx * 0.55f),
+                            )
+                        }
+                        // 主液态高光带：顶部最亮、底部弱反光
                         drawRoundRect(
                             brush = Brush.verticalGradient(
                                 colors = listOf(
-                                    Color.White.copy(alpha = if (isDark) 0.34f else 0.58f),
-                                    Color.Transparent,
-                                    Color.Transparent,
-                                    Color.White.copy(alpha = if (isDark) 0.10f else 0.18f),
+                                    Color.White.copy(alpha = if (isDark) 0.55f else 0.80f),
+                                    Color.White.copy(alpha = if (isDark) 0.05f else 0.09f),
+                                    Color.White.copy(alpha = if (isDark) 0.05f else 0.09f),
+                                    Color.White.copy(alpha = if (isDark) 0.20f else 0.34f),
                                 ),
                             ),
-                            cornerRadius = CornerRadius(cornerRadius.toPx(), cornerRadius.toPx()),
-                            style = Stroke(width = rimWidth.toPx()),
+                            cornerRadius = CornerRadius(r, r),
+                            style = Stroke(width = bandPx),
                         )
                     }
                 }

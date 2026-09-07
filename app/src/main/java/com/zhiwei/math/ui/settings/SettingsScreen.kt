@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -214,20 +215,32 @@ private fun LiquidGlassPreview(glass: GlassSettings) {
             .padding(14.dp)
             .height(120.dp),
     ) {
+        // 光斑场背景（与玻璃背板同风格）：滑杆的模糊/饱和度变化在这里一目了然
         Box(
             Modifier
                 .fillMaxSize()
-                .background(
-                    Brush.linearGradient(
-                        listOf(
-                            Color(0xFF7B93FF),
-                            Color(0xFF67C6B0),
-                            Color(0xFFF2A65A),
-                        ),
-                        start = androidx.compose.ui.geometry.Offset(0f, 0f),
-                        end = androidx.compose.ui.geometry.Offset(1200f, 400f),
+                .drawBehind {
+                    drawRect(Color(0xFF101423))
+                    val blobs = listOf(
+                        Triple(0.22f, 0.30f, Color(0xFFC9A87C)),
+                        Triple(0.78f, 0.62f, Color(0xFF4FA5A0)),
+                        Triple(0.50f, 0.92f, Color(0xFF2F6F8A)),
                     )
-                ),
+                    blobs.forEach { (cx, cy, color) ->
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(color.copy(alpha = 0.85f), Color.Transparent),
+                                center = androidx.compose.ui.geometry.Offset(
+                                    cx * size.width,
+                                    cy * size.height,
+                                ),
+                                radius = size.width * 0.55f,
+                            ),
+                            radius = size.width * 0.55f,
+                            center = androidx.compose.ui.geometry.Offset(cx * size.width, cy * size.height),
+                        )
+                    }
+                },
         ) {
             // 玻璃面板（本卡片被 appNavHost 的内容层 backdrop/haze 捕获）
             GlassSurface(
