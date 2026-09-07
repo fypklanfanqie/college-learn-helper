@@ -261,6 +261,24 @@ fun GlassSurface(
                                 setTintColorGreen(tintG)
                                 setTintColorBlue(tintB)
                                 setTintAlpha(tintAlpha)
+                                // 关键：绑定兄弟采样源（GlassHost，MainActivity 装配的
+                                // ComposeView 之外的背景层）—— 源不含玻璃 → record() 无
+                                // 自引用 → 不递归不崩。结构同聊天终端安卓本地的性能浮窗
+                                // （玻璃 bind 兄弟 ComposeView、面板为其兄弟）。
+                                // 不 bind 时库的 ensureGlass() 直接 return，玻璃不渲染。
+                                // ⚠ 不可 bind 玻璃的祖先（如 android.R.id.content）——
+                                // 快照会包含玻璃自身 → RenderThread 栈溢出（实测 fault
+                                // addr 恒定 0x7b1e6c0ff0）。
+                                val root = com.zhiwei.math.GlassHost.source()
+                                if (root != null) {
+                                    post {
+                                        try {
+                                            bind(root)
+                                        } catch (e: Exception) {
+                                            android.util.Log.w("GlassSurface", "bind failed: ${e.message}")
+                                        }
+                                    }
+                                }
                             }
                         } catch (e: Exception) {
                             // GPU 不兼容兜底：透明占位（内容仍可读）

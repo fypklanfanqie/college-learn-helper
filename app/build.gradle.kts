@@ -19,7 +19,7 @@ android {
         versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        // 鐪熸満 arm64 + 妯℃嫙鍣?x86_64锛圓VD銆宼est銆嶏級
+        // 双 ABI：arm64（真机）+ x86_64（AVD / test）
         ndk {
             abiFilters.add("arm64-v8a")
             abiFilters.add("x86_64")
@@ -28,7 +28,7 @@ android {
 
     buildTypes {
         release {
-            // 浜や粯鐪熸満楠岃瘉锛歳elease 鐢?debug 绛惧悕渚夸簬鐩存帴瀹夎锛涙寮忎笂鏋舵椂鍐嶆崲姝ｅ紡绛惧悕
+            // 未配置 release 签名时复用 debug 签名，保证 assembleRelease 可直接安装
             signingConfig = signingConfigs.getByName("debug")
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -46,7 +46,8 @@ android {
 
     testOptions {
         unitTests.all { test ->
-            // C 鐩樻弧瀵艰嚧椤甸潰鏂囦欢鏃犳硶鎵╁睍锛氬帇浣庢祴璇?JVM 鍫?            test.maxHeapSize = "256m"
+            // C 盘页面文件受限：JVM 测试堆压缩到 256m
+            test.maxHeapSize = "256m"
         }
     }
 }
@@ -89,8 +90,8 @@ dependencies {
     implementation(libs.haze)
     implementation(libs.haze.materials)
     implementation(libs.backdrop)
-    implementation(libs.qmdeve.liquidglass)
     implementation(libs.shapes)
+    implementation(libs.androidx.dynamicanimation)
 
     implementation(libs.markdown.renderer.m3)
     implementation(libs.ratex)
