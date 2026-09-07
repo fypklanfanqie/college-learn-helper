@@ -12,20 +12,16 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.backdrops.LayerBackdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import com.kyant.shapes.RoundedCornerStyle
-import com.nevoit.glasense.material.GlassStyle
-import com.nevoit.glasense.material.glass
-import com.nevoit.glasense.material.MaterialRecipes
-import com.nevoit.glasense.material.rememberMaterialRenderEffectOrNull
 import com.zhiwei.math.data.prefs.GlassSettings
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
@@ -84,17 +80,9 @@ fun ProvideGlassContent(
     val hazeState = remember { HazeState() }
     val mode = resolveGlassMode(glass.mode)
 
-    // 参照 Cresto/MainScreen：backdrop 先画一块 3 倍大的页面背景色再画内容，
-    // 玻璃表面在内容边界外采样时取页面背景色而非透明，避免玻璃边缘出现空洞/黑边。
-    val backdropBaseColor = MaterialTheme.colorScheme.background
-    val layerBackdrop = rememberLayerBackdrop {
-        drawRect(
-            color = backdropBaseColor,
-            size = Size(this.size.width * 3f, this.size.height * 3f),
-            topLeft = Offset(-this.size.width, -this.size.height),
-        )
-        drawContent()
-    }
+    // backdrop 保留注册（供未来 drawBackdrop 修复合机后切回真折射液态玻璃）；
+    // 当前玻璃表面全部走 haze（本机安全），不挂 layerBackdrop 节点。
+    val layerBackdrop = rememberLayerBackdrop()
 
     // 关键修复：此前 LocalLayerBackdrop / LocalHazeState 从未被 provide，
     // 所有玻璃表面都静默降级为纯色半透明矩形，滑杆参数无处生效。
@@ -112,14 +100,7 @@ fun ProvideGlassContent(
     ) {
         when (mode) {
             GlassMode.LIQUID -> {
-                // 液态玻璃为主，同时注册 haze 源以便降级
-                Box(
-                    Modifier
-                        .layerBackdrop(layerBackdrop)
-                        .hazeSource(hazeState)
-                ) {
-                    content()
-                }
+                Box(Modifier.hazeSource(hazeState)) { content() }
             }
             GlassMode.FROSTED -> {
                 Box(Modifier.hazeSource(hazeState)) { content() }
@@ -146,37 +127,64 @@ fun Modifier.appGlass(cornerRadius: Dp = 0.dp): Modifier {
 
     return when (mode) {
         GlassMode.LIQUID -> {
-            val backdrop = LocalLayerBackdrop.current
-            if (backdrop != null) {
-                val recipe = if (isDark) MaterialRecipes.ThinDark else MaterialRecipes.ThinLight
-                val style = GlassStyle(
-                    firstBlurRadius = (tuning.blurRadiusDp * 0.4f).dp,
-                    firstOpacity = tuning.opacity,
-                    firstRefractionHeight = tuning.refractionHeightDp.dp,
-                    firstRefractionAmount = tuning.refractionAmountDp.dp,
-                    secondBlurRadius = tuning.blurRadiusDp.dp,
-                    secondOpacity = tuning.opacity * 0.9f,
-                    secondRefractionHeight = tuning.refractionHeightDp.dp,
-                    secondRefractionAmount = tuning.refractionAmountDp.dp,
-                )
-                val materialEffect = rememberMaterialRenderEffectOrNull(recipe)
-                this.glass(
-                    backdrop = backdrop,
-                    shape = com.kyant.shapes.RoundedRectangle(
-                        cornerRadius = cornerRadius,
-                        style = com.kyant.shapes.RoundedCornerStyle.Continuous,
+            // 液态玻璃实现说明（本机实测结论）：
+            // backdrop 库 drawBackdrop（任意效果，含纯 blur）会触发 HyperOS(Android 16)
+            // 定制 libhwui 的 MiBackgroundBlurBlend 原生崩溃（RenderThread SIGSEGV，
+            // RenderNode UAF），Cresto 同款 glass() 在本机同样会崩；haze 的
+            // offscreen blur 实现实测稳定。
+            // 因此 LIQUID = haze 强模糊 + 液态高光描边（rim light），观感接近 iOS 液态玻璃，
+            // 且滑杆参数（模糊/不透明度/折射高度→模糊调制）全部生效。
+            val blurBase = (tuning.blurRadiusDp + tuning.refractionHeightDp * 0.25f).coerceAtMost(60f)
+            val state = LocalHazeState.current
+            val tintAlpha = (tuning.opacity * 0.62f).coerceIn(0.2f, 0.8f)
+            val tint = if (isDark) {
+                HazeTint(Color(0xFF242428).copy(alpha = tintAlpha))
+            } else {
+                HazeTint(Color(0xFFF6F6FA).copy(alpha = tintAlpha))
+            }
+            val base = if (state != null) {
+                Modifier.hazeEffect(
+                    state = state,
+                    style = HazeStyle(
+                        backgroundColor = MaterialTheme.colorScheme.surface,
+                        tints = listOf(tint),
+                        blurRadius = blurBase.dp,
                     ),
-                    style = style,
-                    materialEffect = materialEffect,
                 )
             } else {
-                this.frostedOrPlain(tuning, composeShape, scrimColor)
+                Modifier.background(scrimColor, composeShape)
             }
+            this
+                .then(base)
+                .liquidRim(isDark = isDark, cornerRadius = cornerRadius)
         }
         GlassMode.FROSTED -> this.frostedOrPlain(tuning, composeShape, scrimColor)
         GlassMode.PLAIN -> this.background(scrimColor, composeShape)
     }
 }
+
+/**
+ * 液态玻璃高光描边：顶部强高光渐隐 + 底部弱反光，纯 Canvas 绘制
+ * （无 RenderEffect，MIUI 安全），模拟玻璃边缘的环境光折射。
+ */
+private fun Modifier.liquidRim(isDark: Boolean, cornerRadius: Dp): Modifier =
+    this.drawWithContent {
+        drawContent()
+        val stroke = 1.2.dp.toPx()
+        val radius = cornerRadius.toPx().coerceAtLeast(0f)
+        drawRoundRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = if (isDark) 0.34f else 0.62f),
+                    Color.Transparent,
+                    Color.Transparent,
+                    Color.White.copy(alpha = if (isDark) 0.10f else 0.18f),
+                ),
+            ),
+            cornerRadius = CornerRadius(radius, radius),
+            style = Stroke(width = stroke),
+        )
+    }
 
 @Composable
 private fun Modifier.frostedOrPlain(tuning: GlassTuning, shape: Shape, scrimColor: Color): Modifier {
