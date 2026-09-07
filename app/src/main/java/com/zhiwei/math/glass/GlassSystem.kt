@@ -13,16 +13,20 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.kyant.backdrop.backdrops.LayerBackdrop
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.lens
+import com.kyant.shapes.RoundedCornerStyle
+import com.kyant.shapes.RoundedRectangle
 import com.zhiwei.math.data.prefs.GlassSettings
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
@@ -54,6 +58,7 @@ val LocalGlassMode = staticCompositionLocalOf { GlassMode.FROSTED }
 val LocalGlassTuning = staticCompositionLocalOf { GlassTuning() }
 val LocalIsDarkTheme = compositionLocalOf { false }
 val LocalHazeState = compositionLocalOf<HazeState?> { null }
+val LocalLayerBackdrop = compositionLocalOf<LayerBackdrop?> { null }
 /** 震动反馈总开关（设置 → 震动），默认开启 */
 val LocalHapticsEnabled = compositionLocalOf { true }
 
@@ -71,14 +76,12 @@ fun resolveGlassMode(userModeId: String, sdkInt: Int = Build.VERSION.SDK_INT): G
 }
 
 /**
- * 应用级玻璃容器：haze 真实内容模糊（本机实测稳定）+ 液态边缘装饰。
+ * 应用级玻璃容器：内容层注册两种源，玻璃表面按模式取样。
  *
- * 实测结论（小米 2410DPN6CC / HyperOS Android 16 / Adreno 830）：
- * - backdrop 库 drawBackdrop（任何效果）→ RenderThread SIGSEGV（MiBackgroundBlurBlend UAF）；
- * - haze 的 offscreen blur（hazeSource + hazeEffect）→ 稳定，且底层真实内容透过玻璃可见
- *   （参考应用同款观感）。
- *
- * 液态玻璃 = haze 真实内容模糊 + 液态高光光带 + 青/金色散双描边，四滑杆实时生效。
+ * - LIQUID：注册 [LayerBackdrop]，表面走官方 lens() 折射（纯 AGSL RuntimeShader，
+ *   不含 BlurEffect —— blur RenderEffect 会触发 HyperOS 定制 libhwui 的
+ *   MiBackgroundBlurBlend 原生崩溃，实测 Adreno 830 必崩）。
+ * - FROSTED：注册 haze 源（offscreen blur，实测本机稳定）。
  */
 @Composable
 fun ProvideGlassContent(
@@ -88,6 +91,18 @@ fun ProvideGlassContent(
 ) {
     val hazeState = remember { HazeState() }
     val mode = resolveGlassMode(glass.mode)
+
+    // 参照 Cresto：backdrop 先画 3 倍大的页面背景色再画内容，
+    // 玻璃在内容边界外采样时取页面背景色而非透明，避免边缘空洞。
+    val backdropBaseColor = MaterialTheme.colorScheme.background
+    val layerBackdrop = rememberLayerBackdrop {
+        drawRect(
+            color = backdropBaseColor,
+            size = Size(this.size.width * 3f, this.size.height * 3f),
+            topLeft = Offset(-this.size.width, -this.size.height),
+        )
+        drawContent()
+    }
 
     androidx.compose.runtime.CompositionLocalProvider(
         LocalGlassMode provides mode,
@@ -99,20 +114,28 @@ fun ProvideGlassContent(
         ),
         LocalIsDarkTheme provides isDark,
         LocalHazeState provides hazeState,
+        LocalLayerBackdrop provides layerBackdrop,
     ) {
         when (mode) {
+            GlassMode.LIQUID -> Box(Modifier.layerBackdrop(layerBackdrop)) { content() }
+            GlassMode.FROSTED -> Box(Modifier.hazeSource(hazeState)) { content() }
             GlassMode.PLAIN -> Box { content() }
-            else -> Box(Modifier.hazeSource(hazeState)) { content() }
         }
     }
 }
 
 /**
- * 玻璃表面修饰符：真实内容透过玻璃被模糊（haze），叠加液态边缘装饰。
- * - 模糊半径滑杆 → haze 模糊半径（0 = 清晰透底）
- * - 不透明度滑杆 → 着色 veil
- * - 折射高度滑杆 → 液态光带宽度
- * - 折射量滑杆 → 青/金色散双描边错位 + 顶部光泽
+ * 玻璃表面修饰符（四滑杆全部实时生效）：
+ *
+ * LIQUID（官方 Kyant0 lens 链，纯 AGSL RuntimeShader）：
+ * - 折射高度滑杆 → lens refractionHeight（边缘折射区宽度，官方示例 12dp）
+ * - 折射量滑杆 → lens refractionAmount（边缘位移量）+ 色散开/关
+ * - 模糊半径滑杆 → 表面白霜雾感（blur RenderEffect 在本机必崩，用霜层模拟）
+ * - 不透明度滑杆 → 表面着色
+ *
+ * FROSTED（haze，真实内容模糊）：
+ * - 模糊半径 → haze blurRadius（0 = 清晰透底）
+ * - 不透明度 → 着色 veil
  */
 fun Modifier.appGlass(cornerRadius: Dp = 0.dp): Modifier = composed {
     val mode = LocalGlassMode.current
@@ -120,88 +143,73 @@ fun Modifier.appGlass(cornerRadius: Dp = 0.dp): Modifier = composed {
     val isDark = LocalIsDarkTheme.current
     val scrimColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
     val composeShape: Shape = RoundedCornerShape(cornerRadius)
+    val density = LocalDensity.current
 
     when (mode) {
         GlassMode.PLAIN -> this.background(scrimColor, composeShape)
-        else -> {
-            val hazeState = LocalHazeState.current
-            // 模糊半径：0 = 清晰透底（与最大值对比强烈）
-            val blurDp = tuning.blurRadiusDp * 1.2f
-            val tintAlpha = (tuning.opacity * 0.7f).coerceIn(0.02f, 0.72f)
-            val tint = if (isDark) {
-                HazeTint(Color(0xFF1E1E26).copy(alpha = tintAlpha))
-            } else {
-                HazeTint(Color(0xFFF7F7FB).copy(alpha = tintAlpha))
-            }
-            val base = if (hazeState != null) {
-                Modifier.hazeEffect(
-                    state = hazeState,
-                    style = HazeStyle(
-                        backgroundColor = MaterialTheme.colorScheme.surface,
-                        tints = listOf(tint),
-                        blurRadius = blurDp.dp,
-                    ),
+
+        GlassMode.LIQUID -> {
+            val backdrop = LocalLayerBackdrop.current
+            if (backdrop != null) {
+                val tintAlpha = (tuning.opacity * 0.55f).coerceIn(0.02f, 0.62f)
+                val frostAlpha = tuning.blurRadiusDp / 40f * 0.40f
+                val tintColor = if (isDark) Color(0xFF17171D) else Color(0xFFF7F7FB)
+                val refractionHeightPx = with(density) { tuning.refractionHeightDp.dp.toPx() }
+                val refractionAmountPx = with(density) { tuning.refractionAmountDp.dp.toPx() }
+                this.drawBackdrop(
+                    backdrop = backdrop,
+                    shape = { RoundedRectangle(cornerRadius, RoundedCornerStyle.Continuous) },
+                    effects = {
+                        // 官方液态折射（纯 AGSL；不使用 blur RenderEffect）
+                        lens(
+                            refractionHeight = refractionHeightPx,
+                            refractionAmount = refractionAmountPx,
+                            depthEffect = false,
+                            chromaticAberration = tuning.refractionAmountDp > 2,
+                        )
+                    },
+                    onDrawSurface = {
+                        // 白霜（模糊滑杆）+ 着色（不透明度滑杆）
+                        drawRect(Color.White.copy(alpha = if (isDark) frostAlpha * 0.45f else frostAlpha))
+                        drawRect(tintColor.copy(alpha = tintAlpha))
+                    },
                 )
             } else {
-                Modifier.background(scrimColor, composeShape)
+                // backdrop 不可用 → 降级 haze 毛玻璃
+                this.hazeGlass(tuning, isDark, composeShape, scrimColor)
             }
-            val isLiquid = mode == GlassMode.LIQUID
-            val bandPx = (2.2f + tuning.refractionHeightDp / 80f * 8.5f).dp // 折射光带宽度
-            val disp = tuning.refractionAmountDp / 96f * 3.2f               // 色散错位 dp
-            val dispAlpha = tuning.refractionAmountDp / 96f
-            val topSheen = if (isLiquid) 0.22f else 0.12f
-
-            this
-                .clip(composeShape)
-                .then(base)
-                .drawWithContent {
-                    drawContent()
-                    // 顶部环境光高光
-                    drawRect(
-                        Brush.verticalGradient(
-                            0f to Color.White.copy(alpha = topSheen),
-                            0.3f to Color.Transparent,
-                            1f to Color.Transparent,
-                        ),
-                    )
-                    if (isLiquid) {
-                        val r = cornerRadius.toPx()
-                        val band = bandPx.toPx()
-                        val d = disp.dp.toPx()
-                        // 冷色散：青蓝，向外扩
-                        if (d > 0.3f) {
-                            drawRoundRect(
-                                color = Color(0xFF6EC1FF).copy(alpha = 0.10f + dispAlpha * 0.38f),
-                                topLeft = Offset(-d, -d),
-                                size = Size(size.width + d * 2f, size.height + d * 2f),
-                                cornerRadius = CornerRadius(r + d, r + d),
-                                style = Stroke(width = band * 0.55f),
-                            )
-                            // 暖色散：金橙，向内缩
-                            drawRoundRect(
-                                color = Color(0xFFFFB27A).copy(alpha = 0.08f + dispAlpha * 0.32f),
-                                topLeft = Offset(d, d),
-                                size = Size(size.width - d * 2f, size.height - d * 2f),
-                                cornerRadius = CornerRadius((r - d).coerceAtLeast(0f), (r - d).coerceAtLeast(0f)),
-                                style = Stroke(width = band * 0.55f),
-                            )
-                        }
-                        // 主液态高光带：顶部最亮、底部弱反光
-                        drawRoundRect(
-                            brush = Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.White.copy(alpha = if (isDark) 0.50f else 0.75f),
-                                    Color.White.copy(alpha = 0.05f),
-                                    Color.White.copy(alpha = 0.05f),
-                                    Color.White.copy(alpha = if (isDark) 0.18f else 0.30f),
-                                ),
-                            ),
-                            cornerRadius = CornerRadius(r, r),
-                            style = Stroke(width = band),
-                        )
-                    }
-                }
         }
+
+        GlassMode.FROSTED -> this.hazeGlass(tuning, isDark, composeShape, scrimColor)
+    }
+}
+
+/** 毛玻璃：haze 真实内容模糊 + 着色 veil（本机实测稳定的 offscreen 路径） */
+private fun Modifier.hazeGlass(
+    tuning: GlassTuning,
+    isDark: Boolean,
+    shape: Shape,
+    scrimColor: Color,
+): Modifier = composed {
+    val hazeState = LocalHazeState.current
+    val blurDp = tuning.blurRadiusDp * 1.2f
+    val tintAlpha = (tuning.opacity * 0.7f).coerceIn(0.02f, 0.72f)
+    val tint = if (isDark) {
+        HazeTint(Color(0xFF1E1E26).copy(alpha = tintAlpha))
+    } else {
+        HazeTint(Color(0xFFF7F7FB).copy(alpha = tintAlpha))
+    }
+    if (hazeState != null) {
+        Modifier.hazeEffect(
+            state = hazeState,
+            style = HazeStyle(
+                backgroundColor = MaterialTheme.colorScheme.surface,
+                tints = listOf(tint),
+                blurRadius = blurDp.dp,
+            ),
+        )
+    } else {
+        Modifier.background(scrimColor, shape)
     }
 }
 
