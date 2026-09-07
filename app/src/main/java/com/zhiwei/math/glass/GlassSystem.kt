@@ -21,8 +21,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import com.qmdeve.liquidglass.widget.LiquidGlassView
 import com.zhiwei.math.data.prefs.GlassSettings
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
@@ -209,7 +212,13 @@ fun Modifier.appGlass(cornerRadius: Dp = 0.dp): Modifier = composed {
 }
 
 /**
- * 玻璃表面容器：普通模式下有 scrim 背景；玻璃模式下透明由效果本身呈现。
+ * 玻璃表面容器。
+ *
+ * LIQUID：QmDeve LiquidGlassView（聊天终端安卓本地性能浮窗同款库，本机实测优秀）。
+ * 配置基线取自该浮窗的实测值（refractionHeight 14dp / offset 60dp / blur 2.5 /
+ * dispersion 0.4 / 淡冷色 tint 0.10），四滑杆直通其 setter。
+ *
+ * FROSTED：haze 真实内容模糊。PLAIN：scrim。
  */
 @Composable
 fun GlassSurface(
@@ -218,16 +227,113 @@ fun GlassSurface(
     content: @Composable BoxScope.() -> Unit,
 ) {
     val mode = LocalGlassMode.current
+    val tuning = LocalGlassTuning.current
+    val isDark = LocalIsDarkTheme.current
     val composeShape: Shape = RoundedCornerShape(cornerRadius)
-    val base = if (mode == GlassMode.PLAIN) {
-        Modifier.background(MaterialTheme.colorScheme.surface.copy(alpha = 0.72f), composeShape)
-    } else {
-        Modifier
+
+    when {
+        // ── 液态玻璃：QmDeve LiquidGlassView（API 33+）──
+        mode == GlassMode.LIQUID && Build.VERSION.SDK_INT >= 33 -> {
+            val density = LocalDensity.current
+            val cornerPx = with(density) { cornerRadius.toPx().coerceAtLeast(8f) }
+            // 实测基线：refractionHeight 14dp、offset 60dp；滑杆在基线邻域映射
+            val refractionH = with(density) { tuning.refractionHeightDp.coerceIn(4, 28).dp.toPx() }
+            val refractionOff = with(density) { tuning.refractionAmountDp.coerceIn(0, 96).dp.toPx() }
+            // 实测基线 blur 2.5 = 滑杆 40 满值；0 = 无模糊
+            val blur = (tuning.blurRadiusDp / 16f).coerceIn(0f, 4f)
+            val tintAlpha = (tuning.opacity * 0.5f).coerceIn(0f, 0.55f)
+            val tintR = if (isDark) 0.05f else 0.97f
+            val tintG = if (isDark) 0.07f else 0.97f
+            val tintB = if (isDark) 0.12f else 1f
+
+            Box(modifier.clip(composeShape)) {
+                AndroidView(
+                    modifier = Modifier.matchParentSize(),
+                    factory = { ctx ->
+                        try {
+                            LiquidGlassView(ctx).apply {
+                                setCornerRadius(cornerPx)
+                                setRefractionHeight(refractionH)
+                                setRefractionOffset(refractionOff)
+                                setBlurRadius(blur)
+                                setDispersion(0.4f)
+                                setTintColorRed(tintR)
+                                setTintColorGreen(tintG)
+                                setTintColorBlue(tintB)
+                                setTintAlpha(tintAlpha)
+                            }
+                        } catch (e: Exception) {
+                            // GPU 不兼容兜底：透明占位（内容仍可读）
+                            android.view.View(ctx)
+                        }
+                    },
+                    update = { glass ->
+                        if (glass is LiquidGlassView) {
+                            glass.setCornerRadius(cornerPx)
+                            glass.setRefractionHeight(refractionH)
+                            glass.setRefractionOffset(refractionOff)
+                            glass.setBlurRadius(blur)
+                            glass.setTintAlpha(tintAlpha)
+                        }
+                    },
+                )
+                Box(Modifier.matchParentSize()) { content() }
+            }
+        }
+
+        // ── 液态玻璃但 API < 33（AGSL 不可用）→ 回退毛玻璃 ──
+        mode == GlassMode.LIQUID -> {
+            val scrimColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
+            Box(
+                modifier
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.72f), composeShape)
+                    .hazeGlass(tuning, isDark, composeShape, scrimColor)
+            ) {
+                content()
+            }
+        }
+
+        // ── 半透明 ──
+        mode == GlassMode.PLAIN -> {
+            Box(modifier.background(MaterialTheme.colorScheme.surface.copy(alpha = 0.72f), composeShape)) {
+                content()
+            }
+        }
+
+        // ── 毛玻璃：haze 真实内容模糊 ──
+        else -> {
+            Box(modifier.appGlass(cornerRadius)) {
+                content()
+            }
+        }
     }
-    Box(
-        modifier = modifier
-            .then(base)
-            .appGlass(cornerRadius),
-        content = content,
-    )
+}
+
+/** 毛玻璃：haze 真实内容模糊 + 着色 veil（本机实测稳定的 offscreen 路径） */
+private fun Modifier.hazeGlass(
+    tuning: GlassTuning,
+    isDark: Boolean,
+    shape: Shape,
+    scrimColor: Color,
+): Modifier = composed {
+    val hazeState = LocalHazeState.current
+    val blurDp = tuning.blurRadiusDp * 1.2f
+    val tintAlpha = (tuning.opacity * 0.7f).coerceIn(0.02f, 0.72f)
+    val tint = if (isDark) {
+        HazeTint(Color(0xFF1E1E26).copy(alpha = tintAlpha))
+    } else {
+        HazeTint(Color(0xFFF7F7FB).copy(alpha = tintAlpha))
+    }
+    if (hazeState != null) {
+        Modifier.hazeEffect(
+            state = hazeState,
+            style = HazeStyle(
+                backgroundColor = MaterialTheme.colorScheme.surface,
+                tints = listOf(tint),
+                blurRadius = blurDp.dp,
+            ),
+        )
+    } else {
+        Modifier.background(scrimColor, shape)
+    }
 }

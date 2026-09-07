@@ -11,6 +11,7 @@ room = "2.8.4"
 koinBom = "4.2.2"
 coroutines = "1.11.0"
 serializationJson = "1.11.0"
+liquidglass = "1.0.3"
 haze = "1.7.3"
 backdrop = "2.0.1"
 shapes = "1.2.1"
@@ -62,6 +63,7 @@ kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 
 haze = { group = "dev.chrisbanes.haze", name = "haze", version.ref = "haze" }
 haze-materials = { group = "dev.chrisbanes.haze", name = "haze-materials", version.ref = "haze" }
+qmdeve-liquidglass = { group = "com.qmdeve.liquidglass", name = "core", version.ref = "liquidglass" }
 backdrop = { group = "io.github.kyant0", name = "backdrop", version.ref = "backdrop" }
 shapes = { group = "io.github.kyant0", name = "shapes", version.ref = "shapes" }
 

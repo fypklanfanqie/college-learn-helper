@@ -1,6 +1,6 @@
 pluginManagement {
     repositories {
-        // 阿里云镜像优先（国内直连稳定）；官方仓库兜底
+        // 闃块噷浜戦暅鍍忎紭鍏堬紙鍥藉唴鐩磋繛绋冲畾锛夛紱瀹樻柟浠撳簱鍏滃簳
         maven("https://maven.aliyun.com/repository/google")
         maven("https://maven.aliyun.com/repository/public")
         maven("https://maven.aliyun.com/repository/gradle-plugin")
@@ -25,6 +25,7 @@ dependencyResolutionManagement {
         maven("https://maven.aliyun.com/repository/public")
         google()
         mavenCentral()
+        maven("https://jitpack.io")
     }
 }
 

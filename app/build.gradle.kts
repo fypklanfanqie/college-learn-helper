@@ -19,7 +19,7 @@ android {
         versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        // 真机 arm64 + 模拟器 x86_64（AVD「test」）
+        // 鐪熸満 arm64 + 妯℃嫙鍣?x86_64锛圓VD銆宼est銆嶏級
         ndk {
             abiFilters.add("arm64-v8a")
             abiFilters.add("x86_64")
@@ -28,7 +28,7 @@ android {
 
     buildTypes {
         release {
-            // 交付真机验证：release 用 debug 签名便于直接安装；正式上架时再换正式签名
+            // 浜や粯鐪熸満楠岃瘉锛歳elease 鐢?debug 绛惧悕渚夸簬鐩存帴瀹夎锛涙寮忎笂鏋舵椂鍐嶆崲姝ｅ紡绛惧悕
             signingConfig = signingConfigs.getByName("debug")
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -46,8 +46,7 @@ android {
 
     testOptions {
         unitTests.all { test ->
-            // C 盘满导致页面文件无法扩展：压低测试 JVM 堆
-            test.maxHeapSize = "256m"
+            // C 鐩樻弧瀵艰嚧椤甸潰鏂囦欢鏃犳硶鎵╁睍锛氬帇浣庢祴璇?JVM 鍫?            test.maxHeapSize = "256m"
         }
     }
 }
@@ -90,6 +89,7 @@ dependencies {
     implementation(libs.haze)
     implementation(libs.haze.materials)
     implementation(libs.backdrop)
+    implementation(libs.qmdeve.liquidglass)
     implementation(libs.shapes)
 
     implementation(libs.markdown.renderer.m3)
