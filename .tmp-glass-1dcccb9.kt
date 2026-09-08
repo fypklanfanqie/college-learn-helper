@@ -42,7 +42,7 @@ enum class GlassMode(val label: String) {
     }
 }
 
-/** 液态玻璃可调参数（PROJECT-BRIEF.md 5.1：滑杆实时生效） */
+/** 液态玻璃可调参数（PROJECT-BRIEF.md 5.1：四滑杆实时生效） */
 data class GlassTuning(
     val refractionHeightDp: Int = 24,
     val refractionAmountDp: Int = 56,
@@ -71,19 +71,14 @@ fun resolveGlassMode(userModeId: String, sdkInt: Int = Build.VERSION.SDK_INT): G
 }
 
 /**
- * 应用级玻璃容器：内容层注册 haze 源，玻璃表面按模式取样。
+ * 应用级玻璃容器：haze 真实内容模糊（本机实测稳定）+ 液态边缘装饰。
  *
- * ⚠⚠ 本机（小米 2410DPN6CC / HyperOS Android 16 / Adreno 830）穷举实测结论：
- * 任何"应用内 shader 采样同窗口内容"的液态玻璃方案都会 RenderThread SIGSEGV
- * （栈溢出，fault addr 同族）——包括：
- *   1. backdrop 库 drawBackdrop + blur / glasense glass() / 官方 lens() 纯 RuntimeShader
- *   2. QmDeve LiquidGlassView bind 内容根（即使快照时排除玻璃自身绘制）
- * HyperOS 定制 libhwui 对该场景存在确定性渲染缺陷。浮窗不崩的唯一原因是
- * 玻璃位于独立窗口（TYPE_APPLICATION_OVERLAY，与 app 不同 surface）。
- * 聊天终端安卓本地 的作者遇到同样问题，因此其应用内玻璃全部弃用 view 树采样。
+ * 实测结论（小米 2410DPN6CC / HyperOS Android 16 / Adreno 830）：
+ * - backdrop 库 drawBackdrop（任何效果）→ RenderThread SIGSEGV（MiBackgroundBlurBlend UAF）；
+ * - haze 的 offscreen blur（hazeSource + hazeEffect）→ 稳定，且底层真实内容透过玻璃可见
+ *   （参考应用同款观感）。
  *
- * 液态玻璃最终实现 = haze 真实内容模糊（offscreen GraphicsLayer，实测稳定）
- * + 液态光带/色散描边（纯 Canvas）。四滑杆全部实时生效。
+ * 液态玻璃 = haze 真实内容模糊 + 液态高光光带 + 青/金色散双描边，四滑杆实时生效。
  */
 @Composable
 fun ProvideGlassContent(
@@ -113,11 +108,11 @@ fun ProvideGlassContent(
 }
 
 /**
- * 玻璃表面修饰符（四滑杆全部实时生效）：
- * - 模糊半径滑杆 → 真实内容模糊度（0 = 清晰透底）
+ * 玻璃表面修饰符：真实内容透过玻璃被模糊（haze），叠加液态边缘装饰。
+ * - 模糊半径滑杆 → haze 模糊半径（0 = 清晰透底）
  * - 不透明度滑杆 → 着色 veil
- * - 折射高度滑杆 → 液态光带宽度（2.2~10.7dp）
- * - 折射量滑杆 → 青/金色散双描边错位（0~3.2dp）+ 光泽
+ * - 折射高度滑杆 → 液态光带宽度
+ * - 折射量滑杆 → 青/金色散双描边错位 + 顶部光泽
  */
 fun Modifier.appGlass(cornerRadius: Dp = 0.dp): Modifier = composed {
     val mode = LocalGlassMode.current
@@ -130,6 +125,7 @@ fun Modifier.appGlass(cornerRadius: Dp = 0.dp): Modifier = composed {
         GlassMode.PLAIN -> this.background(scrimColor, composeShape)
         else -> {
             val hazeState = LocalHazeState.current
+            // 模糊半径：0 = 清晰透底（与最大值对比强烈）
             val blurDp = tuning.blurRadiusDp * 1.2f
             val tintAlpha = (tuning.opacity * 0.7f).coerceIn(0.02f, 0.72f)
             val tint = if (isDark) {
