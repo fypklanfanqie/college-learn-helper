@@ -19,6 +19,10 @@ class SettingsViewModel(private val settings: SettingsStore) : ViewModel() {
     val glass: StateFlow<GlassSettings> =
         settings.glass.stateIn(viewModelScope, SharingStarted.Eagerly, GlassSettings())
 
+    /** 液态玻璃是否因渲染崩溃被自动禁用 */
+    val liquidDisabled: StateFlow<Boolean> =
+        settings.liquidGlassDisabled.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     fun setTheme(theme: String) {
         viewModelScope.launch { settings.setAppearance(appearance.value.copy(theme = theme)) }
     }
@@ -43,5 +47,15 @@ class SettingsViewModel(private val settings: SettingsStore) : ViewModel() {
 
     fun updateGlass(value: GlassSettings) {
         viewModelScope.launch { settings.setGlass(value) }
+    }
+
+    /** 应用预设（整体覆盖液态参数，保留当前模式为 liquid） */
+    fun applyPreset(preset: GlassSettings) {
+        viewModelScope.launch { settings.setGlass(preset) }
+    }
+
+    /** 崩溃自动禁用后用户手动重试液态玻璃 */
+    fun reenableLiquid() {
+        viewModelScope.launch { settings.reenableLiquidGlass() }
     }
 }

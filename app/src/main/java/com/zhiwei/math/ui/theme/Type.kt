@@ -18,33 +18,55 @@ val MiSans = FontFamily(
     Font(R.font.misans_semibold, FontWeight.SemiBold),
 )
 
-val ZhiweiTypography = buildZhiweiTypography(MiSans)
+/**
+ * iOS Text Styles 全量排版（计划「排版」节，数值参考 glasense Type.kt + HIG）。
+ * 大字号负字距（34sp → -0.4sp）；强调变体 SemiBold。
+ */
+object IosTextStyles {
+    val LargeTitle = TextStyle(fontSize = 34.sp, lineHeight = 41.sp, letterSpacing = (-0.4).sp, fontWeight = FontWeight.Normal)
+    val LargeTitleEmphasized = LargeTitle.copy(fontWeight = FontWeight.SemiBold)
+    val Title1 = TextStyle(fontSize = 28.sp, lineHeight = 34.sp, letterSpacing = 0.sp)
+    val Title1Emphasized = Title1.copy(fontWeight = FontWeight.SemiBold)
+    val Title2 = TextStyle(fontSize = 24.sp, lineHeight = 28.sp)
+    val Title2Emphasized = Title2.copy(fontWeight = FontWeight.SemiBold)
+    val Title3 = TextStyle(fontSize = 20.sp, lineHeight = 24.sp)
+    val Title3Emphasized = Title3.copy(fontWeight = FontWeight.SemiBold)
+    val Headline = TextStyle(fontSize = 17.sp, lineHeight = 22.sp, fontWeight = FontWeight.Medium)
+    val Body = TextStyle(fontSize = 17.sp, lineHeight = 22.sp, letterSpacing = (-0.2).sp)
+    val Callout = TextStyle(fontSize = 16.sp, lineHeight = 21.sp)
+    val Subheadline = TextStyle(fontSize = 15.sp, lineHeight = 20.sp)
+    val SubheadlineEmphasized = Subheadline.copy(fontWeight = FontWeight.SemiBold)
+    val Footnote = TextStyle(fontSize = 13.sp, lineHeight = 18.sp)
+    val Caption1 = TextStyle(fontSize = 12.sp, lineHeight = 16.sp)
+    val Caption2 = TextStyle(fontSize = 11.sp, lineHeight = 13.sp)
+}
 
-/** 支持字体切换（MiSans / 系统字体，决策 4 的设置项） */
-fun buildZhiweiTypography(fontFamily: FontFamily): Typography = Typography().run {
-    copy(
-        displayLarge = displayLarge.copy(fontFamily = fontFamily),
-        displayMedium = displayMedium.copy(fontFamily = fontFamily),
-        displaySmall = displaySmall.copy(fontFamily = fontFamily),
-        headlineLarge = headlineLarge.copy(fontFamily = fontFamily),
-        headlineMedium = headlineMedium.copy(fontFamily = fontFamily),
-        headlineSmall = headlineSmall.copy(fontFamily = fontFamily),
-        titleLarge = titleLarge.copy(fontFamily = fontFamily),
-        titleMedium = titleMedium.copy(fontFamily = fontFamily),
-        titleSmall = titleSmall.copy(fontFamily = fontFamily),
-        bodyLarge = bodyLarge.copy(fontFamily = fontFamily),
-        bodyMedium = bodyMedium.copy(fontFamily = fontFamily),
-        bodySmall = bodySmall.copy(fontFamily = fontFamily),
-        labelLarge = labelLarge.copy(fontFamily = fontFamily),
-        labelMedium = labelMedium.copy(fontFamily = fontFamily),
-        labelSmall = labelSmall.copy(fontFamily = fontFamily),
+/**
+ * iOS Text Styles 映射进 MaterialTheme.typography：
+ * 屏幕代码继续用 MaterialTheme.typography 引用，主题层替换实现（计划要求）。
+ */
+fun buildZhiweiTypography(fontFamily: FontFamily): Typography {
+    fun t(style: TextStyle) = style.copy(fontFamily = fontFamily)
+    return Typography(
+        displayLarge = t(IosTextStyles.LargeTitle),
+        displayMedium = t(IosTextStyles.Title1),
+        displaySmall = t(IosTextStyles.Title2),
+        headlineLarge = t(IosTextStyles.Title1Emphasized),
+        headlineMedium = t(IosTextStyles.Title2Emphasized),
+        headlineSmall = t(IosTextStyles.Title3Emphasized),
+        titleLarge = t(IosTextStyles.Title3Emphasized),
+        titleMedium = t(IosTextStyles.Headline),
+        titleSmall = t(IosTextStyles.SubheadlineEmphasized),
+        bodyLarge = t(IosTextStyles.Body),
+        bodyMedium = t(IosTextStyles.Subheadline),
+        bodySmall = t(IosTextStyles.Footnote),
+        labelLarge = t(IosTextStyles.Callout),
+        labelMedium = t(IosTextStyles.Caption1),
+        labelSmall = t(IosTextStyles.Caption2),
     )
 }
 
-/** 大标题（iOS Large Title 风格） */
-val LargeTitle = TextStyle(
-    fontFamily = MiSans,
-    fontWeight = FontWeight.SemiBold,
-    fontSize = 34.sp,
-    lineHeight = 41.sp,
-)
+val ZhiweiTypography = buildZhiweiTypography(MiSans)
+
+/** 兼容旧引用（LargeTitle 34sp SemiBold） */
+val LargeTitle = IosTextStyles.LargeTitleEmphasized.copy(fontFamily = MiSans)

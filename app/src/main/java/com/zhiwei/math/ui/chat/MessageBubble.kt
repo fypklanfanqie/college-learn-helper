@@ -4,11 +4,11 @@ import android.graphics.BitmapFactory
 import android.util.Base64
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,18 +19,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -53,16 +44,26 @@ import com.mikepenz.markdown.m3.Markdown
 import com.zhiwei.math.data.db.MessageEntity
 import com.zhiwei.math.glass.LocalHapticsEnabled
 import com.zhiwei.math.prompt.ExampleData
-import com.zhiwei.math.prompt.ExampleParser
+import com.zhiwei.math.ui.components.IosActionText
+import com.zhiwei.math.ui.components.IosAlertDialog
+import com.zhiwei.math.ui.components.IosBottomSheet
+import com.zhiwei.math.ui.components.IosFilledButton
+import com.zhiwei.math.ui.components.IosPlainButton
+import com.zhiwei.math.ui.components.IosTextField
+import com.zhiwei.math.ui.theme.IosShapes
+import com.zhiwei.math.ui.theme.LocalIosPalette
 import com.zhiwei.math.util.MathTextSplitter
 import com.zhiwei.math.util.TextSegment
 
 /**
- * 消息气泡：用户（右侧）/ 老师（左侧，Markdown+LaTeX）/ 模式切换系统提示 / 例题卡片。
- * 长按老师气泡（带震动反馈）→ 底部选择面板：圈选一段文字后可 追问 / 划重点 / 复制（只对选中文字生效）。
- * 用户追问消息渲染为豆包式引用卡片（摘录 + 问题），不再展示全文。
+ * 消息气泡（iOS 观感）：
+ * - 用户 = 蓝底白字右对齐（Uneven 20/6 连续圆角）；
+ * - 老师 = 浅灰气泡左对齐（16dp 连续圆角）+ Markdown/LaTeX；
+ * - 长按老师气泡（震动）→ 底部选择面板：圈选文字 → 追问 / 划重点 / 复制；
+ * - 追问消息渲染为引用卡片（摘录 + 问题）；
+ * - 例题卡片 iOS 化。
  */
-@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MessageBubble(
     message: MessageEntity,
@@ -76,6 +77,8 @@ fun MessageBubble(
     onAddExample: (ExampleData) -> Unit,
     addedExample: Boolean,
 ) {
+    val palette = LocalIosPalette.current
+
     // 模式切换标记 → 居中小提示条（append-only 历史行）
     if (message.role == "user" && message.content.startsWith("【切换模式：")) {
         val modeName = message.content.removePrefix("【切换模式：").removeSuffix("】")
@@ -83,43 +86,49 @@ fun MessageBubble(
             Text(
                 "已切换到「$modeName」模式",
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = palette.secondaryLabel,
                 modifier = Modifier.padding(vertical = 4.dp),
             )
         }
         return
     }
 
-    // 追问消息 → 豆包式引用卡片（摘录 + 问题），不展示全文
+    // 追问消息 → 引用卡片（摘录 + 问题，蓝底白字气泡内引用块）
     if (message.role == "user" && message.content.startsWith("【追问：")) {
         val rest = message.content.removePrefix("【追问：")
         val closeIdx = rest.indexOf("】")
         val quoted = if (closeIdx >= 0) rest.take(closeIdx) else rest
-        val question = if (closeIdx >= 0 && closeIdx + 1 < rest.length) rest.substring(closeIdx + 1).trim() else ""
+        val question = if (closeIdx >= 0 && closeIdx + 1 < rest.length) {
+            rest.substring(closeIdx + 1).trim()
+        } else ""
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.End,
         ) {
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
-                ),
-                shape = MaterialTheme.shapes.large,
-                modifier = Modifier.widthIn(max = 310.dp),
+            Column(
+                Modifier
+                    .widthIn(max = 300.dp)
+                    .background(palette.blue, IosShapes.BubbleUser)
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (quoted.isNotBlank()) {
+                    // 引用块：白底半透明（iOS 引用样式）
                     Text(
                         quoted,
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = Color.White.copy(alpha = 0.85f),
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .background(Color.White.copy(alpha = 0.18f), IosShapes.Small)
+                            .padding(horizontal = 8.dp, vertical = 5.dp),
                     )
-                    if (question.isNotBlank()) {
-                        Text(question, style = MaterialTheme.typography.bodyMedium)
-                    }
+                }
+                if (question.isNotBlank()) {
+                    Text(question, style = MaterialTheme.typography.bodyMedium, color = Color.White)
                 }
             }
         }
@@ -137,62 +146,70 @@ fun MessageBubble(
             .padding(horizontal = 12.dp, vertical = 4.dp),
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
     ) {
-        Box {
+        Column(
+            modifier = Modifier
+                .widthIn(max = 300.dp)
+                .combinedClickable(
+                    onClick = {},
+                    onLongClick = {
+                        if (!isUser && !isStreamingPlaceholder) {
+                            if (hapticsEnabled) {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            }
+                            showTextPicker = true
+                        }
+                    },
+                ),
+        ) {
+            // 气泡体
             Column(
                 modifier = Modifier
-                    .widthIn(max = 310.dp)
-                    .combinedClickable(
-                        onClick = {},
-                        onLongClick = {
-                            if (!isUser && !isStreamingPlaceholder) {
-                                if (hapticsEnabled) {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                }
-                                showTextPicker = true
-                            }
-                        },
-                    ),
+                    .background(
+                        if (isUser) palette.blue else palette.card,
+                        if (isUser) IosShapes.BubbleUser else IosShapes.BubbleTeacher,
+                    )
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                BubbleCard(isUser = isUser) {
-                    Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        message.imageBase64?.let { b64 ->
-                            val bmp = remember(b64) {
-                                val bytes = Base64.decode(b64, Base64.NO_WRAP)
-                                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                            }
-                            bmp?.let {
-                                Image(
-                                    bitmap = it.asImageBitmap(),
-                                    contentDescription = "题目图片",
-                                    modifier = Modifier
-                                        .heightIn(max = 220.dp)
-                                        .fillMaxWidth(),
-                                )
-                            }
-                        }
-                        message.attachmentName?.let { name ->
-                            AssistChip(onClick = {}, label = { Text("📄 $name") })
-                        }
-                        if (isUser) {
-                            Text(message.content, style = MaterialTheme.typography.bodyMedium)
-                        } else {
-                            AssistantContent(content = message.content)
-                        }
+                message.imageBase64?.let { b64 ->
+                    val bmp = remember(b64) {
+                        val bytes = Base64.decode(b64, Base64.NO_WRAP)
+                        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    }
+                    bmp?.let {
+                        Image(
+                            bitmap = it.asImageBitmap(),
+                            contentDescription = "题目图片",
+                            modifier = Modifier
+                                .heightIn(max = 220.dp)
+                                .fillMaxWidth(),
+                        )
                     }
                 }
+                message.attachmentName?.let { name ->
+                    Text(
+                        "📄 $name",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isUser) Color.White.copy(alpha = 0.85f) else palette.secondaryLabel,
+                    )
+                }
+                if (isUser) {
+                    Text(message.content, style = MaterialTheme.typography.bodyMedium, color = Color.White)
+                } else {
+                    AssistantContent(content = message.content)
+                }
+            }
 
-                // 回答下方按钮组：删除｜追问｜详细解答｜出例题（划重点改为长按圈选，不再整段）
-                // 流式进行中禁用（此前静默 return 导致"点了没反应"，现在按钮明确置灰）
-                if (!isUser && !isStreamingPlaceholder && message.content.isNotBlank()) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        ActionText("删除", enabled = actionsEnabled) { onDelete(message) }
-                        ActionText("追问", enabled = actionsEnabled) { onFollowUp("") }
-                        ActionText("详细解答", enabled = actionsEnabled) { onDetailedSolution() }
-                        ActionText("出例题", enabled = actionsEnabled) { onAskExample() }
-                    }
+            // 回答下方按钮组：删除｜追问｜详细解答｜出例题（蓝色小字，流式中置灰）
+            if (!isUser && !isStreamingPlaceholder && message.content.isNotBlank()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IosActionText("删除", enabled = actionsEnabled) { onDelete(message) }
+                    IosActionText("追问", enabled = actionsEnabled) { onFollowUp("") }
+                    IosActionText("详细解答", enabled = actionsEnabled) { onDetailedSolution() }
+                    IosActionText("出例题", enabled = actionsEnabled) { onAskExample() }
                 }
             }
         }
@@ -216,10 +233,8 @@ fun MessageBubble(
 }
 
 /**
- * 文字选择面板：只读可圈选文本（原生长按手势在按压位置起选，可拖动调整句柄），
- * 下方操作条只作用于选中的文字。参照豆包"引用"交互。
+ * 文字选择面板（IosBottomSheet + 只读可圈选文本 + 操作条）。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TextSelectionSheet(
     text: String,
@@ -227,6 +242,7 @@ fun TextSelectionSheet(
     onFollowUp: (selected: String) -> Unit,
     onHighlight: (selected: String) -> Unit,
 ) {
+    val palette = LocalIosPalette.current
     var value by remember { mutableStateOf(TextFieldValue(text, TextRange(text.length))) }
     val clipboard = LocalClipboardManager.current
     val haptic = LocalHapticFeedback.current
@@ -239,68 +255,54 @@ fun TextSelectionSheet(
         }
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    IosBottomSheet(onDismiss = onDismiss) {
         Column(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 16.dp),
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("长按文字选择一段（引用最多 600 字）", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "长按文字选择一段（引用最多 600 字）",
+                style = MaterialTheme.typography.bodyLarge,
+                color = palette.label,
+            )
             BasicTextField(
                 value = value,
                 onValueChange = { value = it },
                 readOnly = true,
-                textStyle = MaterialTheme.typography.bodyMedium.copy(
-                    color = MaterialTheme.colorScheme.onSurface,
-                ),
-                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = palette.label),
+                cursorBrush = SolidColor(palette.blue),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 360.dp)
+                    .heightIn(max = 340.dp)
                     .verticalScroll(rememberScrollState()),
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(
-                    onClick = {
-                        clipboard.setText(AnnotatedString(selectedText.ifBlank { text }))
-                    },
-                    enabled = true,
-                ) { Text(if (selectedText.isBlank()) "复制全文" else "复制所选") }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                IosPlainButton(
+                    text = if (selectedText.isBlank()) "复制全文" else "复制所选",
+                    onClick = { clipboard.setText(AnnotatedString(selectedText.ifBlank { text })) },
+                )
                 Spacer(Modifier.weight(1f))
-                Button(
+                IosPlainButton(
+                    text = "追问",
+                    enabled = selectedText.isNotBlank(),
                     onClick = {
                         if (hapticsEnabled) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onFollowUp(selectedText.take(600))
                     },
+                )
+                IosPlainButton(
+                    text = "划重点",
                     enabled = selectedText.isNotBlank(),
-                ) { Text("追问") }
-                Button(
                     onClick = {
                         if (hapticsEnabled) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onHighlight(selectedText.take(1200))
                     },
-                    enabled = selectedText.isNotBlank(),
-                ) { Text("划重点") }
+                )
             }
         }
-    }
-}
-
-@Composable
-private fun BubbleCard(isUser: Boolean, content: @Composable () -> Unit) {
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (isUser)
-                MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-            else
-                MaterialTheme.colorScheme.surface,
-        ),
-        shape = MaterialTheme.shapes.large,
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-    ) {
-        content()
     }
 }
 
@@ -320,17 +322,6 @@ fun AssistantContent(content: String) {
     }
 }
 
-@Composable
-fun ActionText(label: String, enabled: Boolean = true, onClick: () -> Unit) {
-    TextButton(
-        onClick = onClick,
-        enabled = enabled,
-        contentPadding = PaddingValues(horizontal = 6.dp),
-    ) {
-        Text(label, style = MaterialTheme.typography.labelMedium)
-    }
-}
-
 /** 例题卡片（题目/解答/考点 + 加入例题本） */
 @Composable
 fun ExampleCard(
@@ -338,40 +329,48 @@ fun ExampleCard(
     added: Boolean,
     onAdd: (ExampleData) -> Unit,
 ) {
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
-        ),
-        shape = MaterialTheme.shapes.large,
+    val palette = LocalIosPalette.current
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp),
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .background(palette.card, IosShapes.Card)
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("例题", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-            if (data.question.isNotEmpty()) {
-                Text("题目：${data.question}", style = MaterialTheme.typography.bodyMedium)
-            }
-            if (data.solution.isNotEmpty()) {
-                Text("解答：${data.solution}", style = MaterialTheme.typography.bodyMedium)
-            }
-            if (data.tags.isNotEmpty()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    data.tags.split("[,，、]".toRegex())
-                        .filter { it.isNotBlank() }
-                        .take(4)
-                        .forEach { tag ->
-                            AssistChip(
-                                onClick = {},
-                                label = { Text(tag.trim(), style = MaterialTheme.typography.labelSmall) },
-                            )
-                        }
-                }
-            }
-            TextButton(onClick = { onAdd(data) }, enabled = !added) {
-                Text(if (added) "已加入例题本 ✓" else "加入例题本")
+        Text(
+            "例题",
+            style = MaterialTheme.typography.labelMedium,
+            color = palette.blue,
+        )
+        if (data.question.isNotEmpty()) {
+            Text("题目：${data.question}", style = MaterialTheme.typography.bodyMedium, color = palette.label)
+        }
+        if (data.solution.isNotEmpty()) {
+            Text("解答：${data.solution}", style = MaterialTheme.typography.bodyMedium, color = palette.label)
+        }
+        if (data.tags.isNotEmpty()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                data.tags.split("[,，、]".toRegex())
+                    .filter { it.isNotBlank() }
+                    .take(4)
+                    .forEach { tag ->
+                        Text(
+                            tag.trim(),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = palette.blue,
+                            modifier = Modifier
+                                .background(palette.blue.copy(alpha = 0.1f), IosShapes.Capsule)
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                        )
+                    }
             }
         }
+        IosPlainButton(
+            text = if (added) "已加入例题本 ✓" else "加入例题本",
+            enabled = !added,
+            onClick = { onAdd(data) },
+        )
     }
 }
 
@@ -383,33 +382,53 @@ fun FollowUpDialog(
     onConfirm: (question: String) -> Unit,
 ) {
     var question by remember { mutableStateOf("") }
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("追问") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    IosAlertDialog(
+        onDismiss = onDismiss,
+        title = "追问",
+        confirmText = "发送",
+        onConfirm = { onConfirm(question) },
+        extraContent = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (quotedText.isNotBlank()) {
                     Text(
                         "引用：" + quotedText.take(120) + if (quotedText.length > 120) "…" else "",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = LocalIosPalette.current.secondaryLabel,
                         maxLines = 3,
                     )
                 }
-                OutlinedTextField(
+                IosTextField(
                     value = question,
                     onValueChange = { question = it },
-                    placeholder = { Text(if (quotedText.isBlank()) "想继续问什么？" else "想针对引用的哪一点深入？") },
-                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = if (quotedText.isBlank()) "想继续问什么？" else "想针对引用的哪一点深入？",
                     minLines = 2,
+                    maxLines = 4,
                 )
             }
         },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(question) }) { Text("发送") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+    )
+}
+
+/** 单行文本对话框（重命名等），iOS 弹窗样式 */
+@Composable
+fun SimpleTextDialog(
+    title: String,
+    initial: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var text by remember { mutableStateOf(initial) }
+    IosAlertDialog(
+        onDismiss = onDismiss,
+        title = title,
+        confirmText = "确定",
+        onConfirm = { if (text.isNotBlank()) onConfirm(text.trim()) },
+        extraContent = {
+            IosTextField(
+                value = text,
+                onValueChange = { text = it },
+                singleLine = true,
+            )
         },
     )
 }

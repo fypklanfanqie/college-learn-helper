@@ -1,50 +1,35 @@
 package com.zhiwei.math.ui.main
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Analytics
-import androidx.compose.material.icons.filled.Bookmarks
-import androidx.compose.material.icons.filled.EditNote
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.outlined.Analytics
-import androidx.compose.material.icons.outlined.Bookmarks
-import androidx.compose.material.icons.outlined.EditNote
-import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
-import com.zhiwei.math.glass.GlassSurface
-import com.zhiwei.math.glass.LocalHapticsEnabled
+import com.zhiwei.math.glass.AppMotion
+import com.zhiwei.math.glass.GlassHost
+import com.zhiwei.math.ui.components.DockItem
+import com.zhiwei.math.ui.components.IosLargeTitleHeader
+import com.zhiwei.math.ui.components.LiquidDock
+import com.zhiwei.math.ui.components.SegmentedControl
+import com.zhiwei.math.ui.icons.SfBookmark
+import com.zhiwei.math.ui.icons.SfChartBar
+import com.zhiwei.math.ui.icons.SfGearshape
+import com.zhiwei.math.ui.icons.SfHouse
+import com.zhiwei.math.ui.icons.SfPencilTip
 import com.zhiwei.math.ui.misc.ExampleBookScreen
 import com.zhiwei.math.ui.misc.HighlightsScreen
 import com.zhiwei.math.ui.practice.PracticeScreen
@@ -53,9 +38,11 @@ import com.zhiwei.math.ui.settings.SettingsScreen
 import com.zhiwei.math.ui.subject.SubjectScreen
 
 /**
- * 主界面：内容层 + 悬浮玻璃 dock（参照参考应用与 Cresto NavigationBar）。
- * 五个页签：主页 / AI练（练题+例题本）/ 学习重点 / 学习报告 / 设置。
- * 页签间切换不走路由（保留状态），详情页（对话/教程/API）从其上 push。
+ * 主界面（GlassHost 兄弟布局铁律）：
+ * - 内容层 = 五个页签（被 layerBackdrop/hazeSource 录制）；
+ * - overlay = 大标题头（IosLargeTitleHeader，玻璃底衬）+ LiquidDock，
+ *   全部玻璃与内容互为兄弟节点（绝不在录制树内部放玻璃）。
+ * - 页签切换 Crossfade + 微 slide；header 折叠态由当前页签滚动回调驱动。
  */
 @Composable
 fun MainScaffold(
@@ -66,69 +53,106 @@ fun MainScaffold(
 ) {
     var tab by rememberSaveable { mutableIntStateOf(TAB_HOME) }
     var aiPracticeTab by rememberSaveable { mutableIntStateOf(0) } // 0 练题 1 例题本
+    var headerCollapsed by remember { mutableStateOf(false) }
 
-    Box(Modifier.fillMaxSize()) {
-        // 内容层：底部留出 dock 覆盖高度，列表滚动到底不被遮挡
-        Box(
-            Modifier
-                .fillMaxSize()
-                .padding(
-                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 84.dp,
-                ),
-        ) {
-            when (tab) {
-                TAB_HOME -> SubjectScreen(onStartMath = onOpenChatList, embedded = true)
-                TAB_PRACTICE -> PracticeHub(
-                    innerTab = aiPracticeTab,
-                    onInnerTabChange = { aiPracticeTab = it },
-                    onOpenChat = onOpenChat,
-                )
-                TAB_HIGHLIGHTS -> HighlightsScreen(onBack = {}, embedded = true)
-                TAB_REPORT -> ReportScreen(onBack = {}, embedded = true)
-                else -> SettingsScreen(
-                    onBack = {},
-                    onOpenApiSettings = onOpenApiSettings,
-                    onOpenTutorial = onOpenTutorial,
-                    embedded = true,
-                )
-            }
-        }
-
-        GlassDock(
-            selected = tab,
-            onSelect = { tab = it },
-            modifier = Modifier.align(Alignment.BottomCenter),
+    val dockItems = remember {
+        listOf(
+            DockItem("主页", SfHouse),
+            DockItem("AI练", SfPencilTip),
+            DockItem("学习重点", SfBookmark),
+            DockItem("学习报告", SfChartBar),
+            DockItem("设置", SfGearshape),
         )
     }
+    val tabTitles = remember {
+        listOf("知微数学", "AI练", "学习重点", "学习报告", "设置")
+    }
+
+    // 页签切换时重置折叠态（新页签从顶部开始）
+    LaunchedEffect(tab) { headerCollapsed = false }
+
+    GlassHost(
+        modifier = Modifier.fillMaxSize(),
+        content = {
+            AnimatedContent(
+                targetState = tab,
+                transitionSpec = {
+                    (fadeIn(AppMotion.snappy()) + androidx.compose.animation.slideInVertically(
+                        AppMotion.snappy(),
+                    ) { it / 24 }) togetherWith fadeOut(AppMotion.snappy())
+                },
+                label = "tabContent",
+            ) { t ->
+                Box(Modifier.fillMaxSize()) {
+                    when (t) {
+                        TAB_HOME -> SubjectScreen(
+                            onStartMath = onOpenChatList,
+                            onOpenChat = onOpenChat,
+                            onCollapsedChanged = { headerCollapsed = it },
+                        )
+                        TAB_PRACTICE -> PracticeHub(
+                            innerTab = aiPracticeTab,
+                            onInnerTabChange = { aiPracticeTab = it },
+                            onOpenChat = onOpenChat,
+                        )
+                        TAB_HIGHLIGHTS -> HighlightsScreen(
+                            onBack = {},
+                            onOpenChat = onOpenChat,
+                            embedded = true,
+                            onCollapsedChanged = { headerCollapsed = it },
+                        )
+                        TAB_REPORT -> ReportScreen(
+                            onBack = {},
+                            embedded = true,
+                            onCollapsedChanged = { headerCollapsed = it },
+                        )
+                        else -> SettingsScreen(
+                            onBack = {},
+                            onOpenApiSettings = onOpenApiSettings,
+                            onOpenTutorial = onOpenTutorial,
+                            embedded = true,
+                            onCollapsedChanged = { headerCollapsed = it },
+                        )
+                    }
+                }
+            }
+        },
+        overlay = {
+            // 大标题头：玻璃底衬只在折叠后浮现（overlay = 兄弟玻璃）
+            IosLargeTitleHeader(
+                title = tabTitles[tab],
+                collapsed = headerCollapsed,
+                modifier = Modifier.align(Alignment.TopCenter),
+            )
+            // 液态玻璃 dock（内部滑块用 exportedBackdrop 玻璃上玻璃）
+            LiquidDock(
+                items = dockItems,
+                selected = tab,
+                onSelect = { tab = it },
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        },
+    )
 }
 
-/** AI练：练题 + 例题本 内嵌页签 */
+/** AI练：练题 + 例题本 内嵌页签（SegmentedControl 替代 FilterChip） */
 @Composable
 private fun PracticeHub(
     innerTab: Int,
     onInnerTabChange: (Int) -> Unit,
     onOpenChat: (Long) -> Unit,
 ) {
-    Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("AI练", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-            FilterChip(
-                selected = innerTab == 0,
-                onClick = { onInnerTabChange(0) },
-                label = { Text("练题") },
-            )
-            FilterChip(
-                selected = innerTab == 1,
-                onClick = { onInnerTabChange(1) },
-                label = { Text("例题本") },
-            )
-        }
+    androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
+        // 大标题由 overlay 头提供；此处只放内嵌分段控件（顶部留出 header 空间）
+        SegmentedControl(
+            options = listOf(0, 1),
+            selected = innerTab,
+            onSelect = onInnerTabChange,
+            label = { if (it == 0) "练题" else "例题本" },
+            modifier = Modifier
+                .statusBarsPadding()
+                .padding(top = 96.dp, start = 20.dp, end = 20.dp),
+        )
         Box(Modifier.fillMaxSize()) {
             if (innerTab == 0) {
                 PracticeScreen(onBack = {}, embedded = true)
@@ -139,88 +163,8 @@ private fun PracticeHub(
     }
 }
 
-// ───────────────────────── 玻璃 dock ─────────────────────────
-
 private const val TAB_HOME = 0
 private const val TAB_PRACTICE = 1
 private const val TAB_HIGHLIGHTS = 2
 private const val TAB_REPORT = 3
 private const val TAB_SETTINGS = 4
-
-private data class DockItem(
-    val label: String,
-    val iconSelected: ImageVector,
-    val iconUnselected: ImageVector,
-)
-
-@Composable
-fun GlassDock(
-    selected: Int,
-    onSelect: (Int) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val hapticsEnabled = LocalHapticsEnabled.current
-    val haptic = LocalHapticFeedback.current
-    val items = remember {
-        listOf(
-            DockItem("主页", Icons.Filled.Home, Icons.Outlined.Home),
-            DockItem("AI练", Icons.Filled.EditNote, Icons.Outlined.EditNote),
-            DockItem("学习重点", Icons.Filled.Bookmarks, Icons.Outlined.Bookmarks),
-            DockItem("学习报告", Icons.Filled.Analytics, Icons.Outlined.Analytics),
-            DockItem("设置", Icons.Filled.Settings, Icons.Outlined.Settings),
-        )
-    }
-
-    GlassSurface(
-        cornerRadius = 31.dp,
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp)
-            .navigationBarsPadding()
-            .padding(bottom = 8.dp)
-            .height(62.dp),
-    ) {
-        Row(Modifier.fillMaxSize()) {
-            items.forEachIndexed { index, item ->
-                val isSelected = index == selected
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                        ) {
-                            if (hapticsEnabled) {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            }
-                            onSelect(index)
-                        },
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    Icon(
-                        imageVector = if (isSelected) item.iconSelected else item.iconUnselected,
-                        contentDescription = item.label,
-                        tint = if (isSelected) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        modifier = Modifier.size(22.dp),
-                    )
-                    Text(
-                        item.label,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (isSelected) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        maxLines = 1,
-                    )
-                }
-            }
-        }
-    }
-}

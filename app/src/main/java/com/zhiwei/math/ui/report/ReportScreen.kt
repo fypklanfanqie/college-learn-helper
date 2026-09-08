@@ -11,34 +11,31 @@ import android.provider.MediaStore
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -50,8 +47,21 @@ import com.zhiwei.math.llm.core.LlmEvent
 import com.zhiwei.math.llm.core.LlmMessage
 import com.zhiwei.math.llm.core.LlmRequest
 import com.zhiwei.math.llm.core.SystemBlock
+import com.zhiwei.math.ui.chat.AssistantContent
+import com.zhiwei.math.ui.components.CardGroup
+import com.zhiwei.math.ui.components.CardRow
+import com.zhiwei.math.ui.components.IosFilledButton
+import com.zhiwei.math.ui.components.IosPlainButton
+import com.zhiwei.math.ui.components.IosBottomSheet
+import com.zhiwei.math.ui.components.Section
+import com.zhiwei.math.ui.components.SectionFooter
+import com.zhiwei.math.ui.components.SectionHeader
+import com.zhiwei.math.ui.icons.SfChevronRight
+import com.zhiwei.math.ui.icons.SfShare
+import com.zhiwei.math.ui.icons.SfDoc
+import com.zhiwei.math.ui.theme.IosShapes
+import com.zhiwei.math.ui.theme.LocalIosPalette
 import com.zhiwei.math.util.DocxWriter
-import com.zhiwei.math.util.ImageUtils
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -210,14 +220,16 @@ class ReportViewModel(
     }
 }
 
-/** 学习报告屏：选对话 → 生成（流式预览）→ 导出图片/Word */
+/** 学习报告屏（iOS 观感）：选对话行（chevron 菜单样式）+ 生成/导出按钮 iOS 化 */
 @Composable
 fun ReportScreen(
     onBack: () -> Unit,
     embedded: Boolean = false,
+    onCollapsedChanged: (Boolean) -> Unit = {},
     viewModel: ReportViewModel = org.koin.androidx.compose.koinViewModel(),
 ) {
-    val context = LocalContext.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val palette = LocalIosPalette.current
     val conversations by viewModel.conversations.collectAsStateWithLifecycle()
     val selectedId by viewModel.selectedConversationId.collectAsStateWithLifecycle()
     val reportText by viewModel.reportText.collectAsStateWithLifecycle()
@@ -225,68 +237,141 @@ fun ReportScreen(
     val error by viewModel.error.collectAsStateWithLifecycle()
     var notice by remember { mutableStateOf<String?>(null) }
     var pickerOpen by remember { mutableStateOf(false) }
+    val scrollState = rememberScrollState()
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                navigationIcon = { if (!embedded) TextButton(onClick = onBack) { Text("返回") } },
-                title = { Text("学习报告") },
-            )
-        },
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Box {
-                OutlinedButton(onClick = { pickerOpen = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        conversations.firstOrNull { it.id == selectedId }?.title ?: "选择一个对话"
+    LaunchedEffect(scrollState.value) { onCollapsedChanged(scrollState.value > 4) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(palette.background)
+            .verticalScroll(scrollState),
+    ) {
+        Spacer(Modifier.statusBarsPadding().height(96.dp))
+        Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            // ── 选对话（iOS 列表行 + chevron）──
+            SectionHeader("选择对话")
+            CardGroup {
+                CardRow(
+                    title = conversations.firstOrNull { it.id == selectedId }?.title
+                        ?: "选择一个对话",
+                    trailingText = if (selectedId != null) "已选" else null,
+                    showChevron = true,
+                    showDivider = false,
+                    enabled = !generating,
+                    onClick = { pickerOpen = true },
+                )
+            }
+
+            // ── 生成 / 导出 ──
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                IosFilledButton(
+                    text = if (generating) "生成中…" else "生成报告",
+                    onClick = viewModel::generate,
+                    enabled = selectedId != null && !generating,
+                    loading = generating,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            if (reportText.isNotBlank()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    IosFilledButton(
+                        text = "导出图片",
+                        onClick = { viewModel.exportImage(context) { notice = it } },
+                        leadingIcon = SfShare,
+                        containerColor = palette.card,
+                        textColor = palette.blue,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IosFilledButton(
+                        text = "导出 Word",
+                        onClick = { viewModel.exportWord(context) { notice = it } },
+                        leadingIcon = SfDoc,
+                        containerColor = palette.card,
+                        textColor = palette.blue,
+                        modifier = Modifier.weight(1f),
                     )
                 }
-                DropdownMenu(expanded = pickerOpen, onDismissRequest = { pickerOpen = false }) {
-                    conversations.forEach { c ->
-                        DropdownMenuItem(
-                            text = { Text(c.title) },
-                            onClick = {
-                                pickerOpen = false
-                                viewModel.select(c.id)
-                            },
-                        )
-                    }
-                }
+            }
+            error?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = palette.red)
+            }
+            notice?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = palette.blue)
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = viewModel::generate, enabled = selectedId != null && !generating) {
-                    Text(if (generating) "生成中…" else "生成报告")
-                }
-                OutlinedButton(
-                    onClick = { viewModel.exportImage(context) { notice = it } },
-                    enabled = reportText.isNotBlank(),
-                ) { Text("导出图片") }
-                OutlinedButton(
-                    onClick = { viewModel.exportWord(context) { notice = it } },
-                    enabled = reportText.isNotBlank(),
-                ) { Text("导出 Word") }
-            }
-
-            if (generating && reportText.isBlank()) {
-                CircularProgressIndicator()
-            }
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            notice?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
-
+            // ── 报告预览 ──
             if (reportText.isNotBlank()) {
-                Card {
-                    Column(Modifier.padding(12.dp)) {
-                        com.zhiwei.math.ui.chat.AssistantContent(reportText)
+                CardGroup {
+                    Column(Modifier.padding(14.dp)) {
+                        AssistantContent(reportText)
                     }
                 }
+            } else if (generating) {
+                Box(Modifier.fillMaxWidth().padding(vertical = 32.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = palette.blue)
+                }
             }
+            Spacer(Modifier.height(132.dp))
+        }
+    }
+
+    // 对话选择器（iOS bottom sheet 列表）
+    if (pickerOpen) {
+        IosBottomSheet(onDismiss = { pickerOpen = false }) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 20.dp),
+            ) {
+                Text(
+                    "选择对话",
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+                    color = palette.label,
+                )
+                conversations.forEach { c ->
+                    ConvoRowInSheet(
+                        title = c.title,
+                        selected = c.id == selectedId,
+                        onClick = {
+                            viewModel.select(c.id)
+                            pickerOpen = false
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** bottom sheet 内的对话选择行 */
+@Composable
+private fun ConvoRowInSheet(title: String, selected: Boolean, onClick: () -> Unit) {
+    val palette = LocalIosPalette.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (selected) palette.blue else palette.label,
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 20.dp, vertical = 14.dp),
+        )
+        if (selected) {
+            androidx.compose.material3.Icon(
+                com.zhiwei.math.ui.icons.SfCheckmark,
+                contentDescription = null,
+                tint = palette.blue,
+                modifier = Modifier
+                    .padding(end = 20.dp)
+                    .height(16.dp),
+            )
         }
     }
 }

@@ -2,18 +2,18 @@ package com.zhiwei.math.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// iOS 风格调色板（精简版；玻璃效果取色后续在 glass 系统扩展）
-val ZhiweiBlue = Color(0xFF4F6BF6)
-val ZhiweiBlueDark = Color(0xFF7B93FF)
+// ── iOS 系统色板（Design.kt IosColors 的扁平别名，供 MaterialTheme 与旧代码引用）──
+val ZhiweiBlue = IosColors.BlueLight
+val ZhiweiBlueDark = IosColors.BlueDark
 
-val LightBackground = Color(0xFFF2F2F7)
-val LightSurface = Color(0xFFFFFFFF)
-val LightSurfaceVariant = Color(0xFFE5E5EA)
-val LightOnSurface = Color(0xFF1C1C1E)
-val LightOnSurfaceVariant = Color(0xFF8E8E93)
+val LightBackground = IosColors.LightBackground
+val LightSurface = IosColors.LightCard
+val LightSurfaceVariant = IosColors.LightFill
+val LightOnSurface = IosColors.LightLabel
+val LightOnSurfaceVariant = IosColors.LightSecondaryLabel
 
-val DarkBackground = Color(0xFF000000)
-val DarkSurface = Color(0xFF1C1C1E)
-val DarkSurfaceVariant = Color(0xFF2C2C2E)
-val DarkOnSurface = Color(0xFFF2F2F7)
-val DarkOnSurfaceVariant = Color(0xFF98989F)
+val DarkBackground = IosColors.DarkBackground
+val DarkSurface = IosColors.DarkCard
+val DarkSurfaceVariant = IosColors.DarkFill
+val DarkOnSurface = IosColors.DarkLabel
+val DarkOnSurfaceVariant = IosColors.DarkSecondaryLabel

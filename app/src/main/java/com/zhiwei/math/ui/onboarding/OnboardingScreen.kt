@@ -1,13 +1,16 @@
 package com.zhiwei.math.ui.onboarding
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,44 +29,67 @@ import com.zhiwei.math.llm.core.Protocol
 import com.zhiwei.math.llm.core.ProviderPreset
 import com.zhiwei.math.ui.common.ApiConfigForm
 import com.zhiwei.math.ui.common.ProviderPicker
+import com.zhiwei.math.ui.components.IosFilledButton
+import com.zhiwei.math.ui.theme.IosTextStyles
+import com.zhiwei.math.ui.theme.LocalIosPalette
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 
 /**
- * Onboarding（一次性）：欢迎 → API 接入向导（厂商卡片 + 自定义；👁 视觉标注；无视觉黄条提示 OCR）→ 完成。
+ * Onboarding（一次性，iOS 观感）：
+ * 欢迎（LargeTitle + slogan）→ API 接入向导（厂商卡片 + 自定义；👁 视觉标注）→ 完成。
  */
 @Composable
 fun OnboardingScreen(
     onFinished: () -> Unit,
     viewModel: OnboardingViewModel = koinViewModel(),
 ) {
+    val palette = LocalIosPalette.current
     val state by viewModel.state.collectAsState()
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(palette.background)
+            .verticalScroll(rememberScrollState())
+            .imePadding()
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         if (state.step == 0) {
-            Spacer(Modifier.height(120.dp))
-            Text("知微数学", style = MaterialTheme.typography.displaySmall)
+            Spacer(Modifier.height(110.dp))
+            Text(
+                "知微数学",
+                style = MaterialTheme.typography.displayLarge,
+                color = palette.label,
+            )
             Spacer(Modifier.height(16.dp))
             Text(
                 "见微知著，循序渐进。\n先告诉我——你要学什么？",
                 style = MaterialTheme.typography.bodyLarge,
+                color = palette.secondaryLabel,
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(48.dp))
-            Button(onClick = { viewModel.nextStep() }, modifier = Modifier.fillMaxWidth()) {
-                Text("开始配置")
-            }
+            IosFilledButton(
+                text = "开始配置",
+                onClick = viewModel::nextStep,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(120.dp))
         } else {
-            Spacer(Modifier.height(16.dp))
-            Text("接入你的 API", style = MaterialTheme.typography.headlineSmall)
+            Spacer(Modifier.height(20.dp))
+            Text(
+                "接入你的 API",
+                style = MaterialTheme.typography.titleLarge,
+                color = palette.label,
+                modifier = Modifier.fillMaxWidth(),
+            )
             Text(
                 "选择一家模型商，或使用自定义端点（BYOK，Key 只存在你的手机里）",
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
+                color = palette.secondaryLabel,
+                modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(16.dp))
             ProviderPicker(
@@ -85,16 +111,18 @@ fun OnboardingScreen(
                 onSupportsVisionChange = viewModel::setSupportsVision,
             )
             if (state.error != null) {
-                Text(state.error!!, color = MaterialTheme.colorScheme.error)
+                Spacer(Modifier.height(8.dp))
+                Text(state.error!!, color = palette.red, style = MaterialTheme.typography.bodySmall)
             }
             Spacer(Modifier.weight(1f))
-            Button(
+            Spacer(Modifier.height(16.dp))
+            IosFilledButton(
+                text = "完成",
                 onClick = { viewModel.save(onFinished) },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = state.baseUrl.isNotBlank() && state.model.isNotBlank() && state.apiKey.isNotBlank(),
-            ) {
-                Text("完成")
-            }
+            )
+            Spacer(Modifier.height(32.dp))
         }
     }
 }

@@ -1,20 +1,18 @@
 package com.zhiwei.math.ui.settings
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -26,72 +24,82 @@ import androidx.lifecycle.viewModelScope
 import com.zhiwei.math.data.prefs.ApiConfig
 import com.zhiwei.math.data.prefs.ApiKeyStore
 import com.zhiwei.math.data.prefs.SettingsStore
+import com.zhiwei.math.glass.GlassHost
 import com.zhiwei.math.llm.core.Protocol
 import com.zhiwei.math.llm.core.ProviderPreset
 import com.zhiwei.math.ui.common.ApiConfigForm
 import com.zhiwei.math.ui.common.ProviderPicker
+import com.zhiwei.math.ui.components.IosFilledButton
+import com.zhiwei.math.ui.components.IosNavBar
+import com.zhiwei.math.ui.components.IosPlainButton
+import com.zhiwei.math.ui.components.SectionHeader
+import com.zhiwei.math.ui.theme.LocalIosPalette
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 
-/** 设置 · API 配置（聊天页右上角与设置页共用入口） */
+/** 设置 · API 配置（聊天页右上角与设置页共用入口，iOS 观感 + 玻璃顶栏） */
 @Composable
 fun ApiSettingsScreen(
     onBack: () -> Unit,
     viewModel: ApiSettingsViewModel = koinViewModel(),
 ) {
+    val palette = LocalIosPalette.current
     val state by viewModel.state.collectAsState()
 
     LaunchedEffect(Unit) { viewModel.load() }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("API 配置") },
-                navigationIcon = {
-                    TextButton(onClick = onBack) { Text("返回") }
-                },
+    GlassHost(
+        modifier = Modifier.fillMaxSize(),
+        content = {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(palette.background)
+                    .verticalScroll(rememberScrollState())
+                    .imePadding()
+                    .padding(top = 100.dp, start = 16.dp, end = 16.dp, bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                ProviderPicker(selectedId = state.providerId, onSelect = viewModel::selectProvider)
+                ApiConfigForm(
+                    baseUrl = state.baseUrl,
+                    onBaseUrlChange = viewModel::setBaseUrl,
+                    model = state.model,
+                    onModelChange = viewModel::setModel,
+                    apiKey = state.apiKey,
+                    onApiKeyChange = viewModel::setApiKey,
+                    protocol = state.protocol,
+                    onProtocolChange = viewModel::setProtocol,
+                    modelSuggestions = state.modelSuggestions,
+                    supportsVision = state.supportsVision,
+                    onSupportsVisionChange = viewModel::setSupportsVision,
+                )
+                if (state.error != null) {
+                    Text(state.error!!, color = palette.red, style = MaterialTheme.typography.bodySmall)
+                }
+                if (state.saved) {
+                    Text("已保存", color = palette.blue, style = MaterialTheme.typography.bodySmall)
+                }
+                Spacer(Modifier.height(8.dp))
+                IosFilledButton(
+                    text = "保存",
+                    onClick = { viewModel.save() },
+                    enabled = state.canSave,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                IosPlainButton(text = "取消", onClick = onBack, modifier = Modifier.fillMaxWidth())
+            }
+        },
+        overlay = {
+            IosNavBar(
+                title = "API 配置",
+                onBack = onBack,
+                modifier = Modifier.align(androidx.compose.ui.Alignment.TopCenter),
             )
         },
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            ProviderPicker(selectedId = state.providerId, onSelect = viewModel::selectProvider)
-            ApiConfigForm(
-                baseUrl = state.baseUrl,
-                onBaseUrlChange = viewModel::setBaseUrl,
-                model = state.model,
-                onModelChange = viewModel::setModel,
-                apiKey = state.apiKey,
-                onApiKeyChange = viewModel::setApiKey,
-                protocol = state.protocol,
-                onProtocolChange = viewModel::setProtocol,
-                modelSuggestions = state.modelSuggestions,
-                supportsVision = state.supportsVision,
-                onSupportsVisionChange = viewModel::setSupportsVision,
-            )
-            if (state.error != null) {
-                Text(state.error!!, color = MaterialTheme.colorScheme.error)
-            }
-            if (state.saved) {
-                Text("已保存", color = MaterialTheme.colorScheme.primary)
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { viewModel.save() }, enabled = state.canSave) {
-                    Text("保存")
-                }
-                TextButton(onClick = onBack) { Text("取消") }
-            }
-            Spacer(Modifier.fillMaxWidth().padding(bottom = 32.dp))
-        }
-    }
+    )
 }
 
 data class ApiSettingsUiState(

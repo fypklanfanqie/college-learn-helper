@@ -5,11 +5,14 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
@@ -19,34 +22,18 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.AttachFile
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.PhotoCamera
-import androidx.compose.material.icons.filled.PhotoLibrary
-import androidx.compose.material.icons.filled.Send
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -62,14 +49,32 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kyant.shapes.RoundedCornerStyle
+import com.kyant.shapes.RoundedRectangle
 import com.zhiwei.math.data.db.MessageEntity
 import com.zhiwei.math.data.prefs.ApiConfig
 import com.zhiwei.math.data.prefs.SettingsStore
-import com.zhiwei.math.glass.GlassSurface
+import com.zhiwei.math.glass.GlassHost
+import com.zhiwei.math.glass.liquidGlass
 import com.zhiwei.math.prompt.ChatMode
+import com.zhiwei.math.ui.components.IosBackButton
+import com.zhiwei.math.ui.components.IosIconButton
+import com.zhiwei.math.ui.components.IosMenuSheet
+import com.zhiwei.math.ui.components.IosPlainButton
+import com.zhiwei.math.ui.components.MenuItem
+import com.zhiwei.math.ui.icons.SfCamera
+import com.zhiwei.math.ui.icons.SfDoc
+import com.zhiwei.math.ui.icons.SfEllipsis
+import com.zhiwei.math.ui.icons.SfPaperclip
+import com.zhiwei.math.ui.icons.SfPaperplane
+import com.zhiwei.math.ui.icons.SfPhoto
+import com.zhiwei.math.ui.icons.SfStopCircle
+import com.zhiwei.math.ui.theme.IosShapes
+import com.zhiwei.math.ui.theme.LocalIosPalette
 import com.zhiwei.math.util.DocExtractor
 import com.zhiwei.math.util.ImageUtils
 import org.koin.androidx.compose.koinViewModel
@@ -77,7 +82,10 @@ import org.koin.compose.koinInject
 import java.io.File
 
 /**
- * 聊天页（核心屏幕）：顶栏（返回/标题/模式切换/⋯）、消息流（流式）、输入区（文本+图片+文档）。
+ * 聊天页（GlassHost 兄弟布局铁律）：
+ * - 内容层 = 聊天背景图 + 消息流（被 layerBackdrop 录制，玻璃可折射它）；
+ * - overlay = 玻璃顶栏 + 底部玻璃输入胶囊（全部为内容层兄弟节点）。
+ * 顶栏：返回 + 标题/副标题 + 模式胶囊 + ⋯ 菜单（action sheet）。
  */
 @Composable
 fun ChatScreen(
@@ -87,6 +95,7 @@ fun ChatScreen(
     settings: SettingsStore = koinInject(),
 ) {
     val context = LocalContext.current
+    val palette = LocalIosPalette.current
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val conversation by viewModel.conversation.collectAsStateWithLifecycle()
     val streamingText by viewModel.streamingText.collectAsStateWithLifecycle()
@@ -94,11 +103,12 @@ fun ChatScreen(
     val notice by viewModel.notice.collectAsStateWithLifecycle()
     val pendingImage by viewModel.pendingImage.collectAsStateWithLifecycle()
     val apiConfig by settings.apiConfig.collectAsState(initial = ApiConfig())
-    val appearance by settings.appearance.collectAsState(initial = com.zhiwei.math.data.prefs.AppearanceSettings())
+    val appearance by settings.appearance.collectAsState(
+        initial = com.zhiwei.math.data.prefs.AppearanceSettings()
+    )
 
     val listState = rememberLazyListState()
-    // 自动滚动修复：仅当用户位于列表底部附近时才跟随新内容滚动；
-    // 用户向上翻阅历史时不再被强制拉回底部。
+    // 自动滚动：仅当用户位于底部附近才跟随新内容（向上翻阅时不强制拉回）
     val nearBottom by remember {
         derivedStateOf {
             val info = listState.layoutInfo
@@ -114,6 +124,8 @@ fun ChatScreen(
 
     var showFollowUpFor by remember { mutableStateOf<String?>(null) }
     var topMenuOpen by remember { mutableStateOf(false) }
+    var modeMenuOpen by remember { mutableStateOf(false) }
+    var attachMenuOpen by remember { mutableStateOf(false) }
     var showRename by remember { mutableStateOf(false) }
 
     // 拍照：FileProvider 缓存 Uri
@@ -154,192 +166,270 @@ fun ChatScreen(
         }
     }
 
-    // 悬浮覆盖布局（参照 Cresto）：内容铺满全屏，玻璃顶栏/输入条浮在内容上方，
-    // 消息从玻璃面板下方滚过 —— 液态玻璃才有东西可折射。
-    Box(Modifier.fillMaxSize()) {
-        // 底层：背景图 + 消息列表
-        Box(Modifier.fillMaxSize()) {
-            // 聊天背景图（设置 → 外观 → 聊天背景）
-            appearance.chatBackgroundUri.takeIf { it.isNotBlank() }?.let { bgUri ->
-                val bgBmp = remember(bgUri) { ImageUtils.loadScaledBitmap(context, Uri.parse(bgUri)) }
-                bgBmp?.let {
-                    Image(
-                        bitmap = it.asImageBitmap(),
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
+    GlassHost(
+        modifier = Modifier.fillMaxSize(),
+        content = {
+            // 底层：背景图 + 消息列表（内容层，被录制）
+            Box(Modifier.fillMaxSize()) {
+                appearance.chatBackgroundUri.takeIf { it.isNotBlank() }?.let { bgUri ->
+                    val bgBmp = remember(bgUri) { ImageUtils.loadScaledBitmap(context, Uri.parse(bgUri)) }
+                    bgBmp?.let {
+                        Image(
+                            bitmap = it.asImageBitmap(),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                 }
-            }
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                contentPadding = PaddingValues(
-                    top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 76.dp,
-                    bottom = 140.dp,
-                ),
-            ) {
-                items(messages, key = { it.id }) { message ->
-                    MessageBubble(
-                        message = message,
-                        actionsEnabled = streamingText == null,
-                        onFollowUp = { quoted -> showFollowUpFor = quoted },
-                        onDetailedSolution = viewModel::detailedSolution,
-                        onHighlight = viewModel::highlight,
-                        onAskExample = viewModel::askExample,
-                        onDelete = viewModel::deleteMessage,
-                        onAddExample = viewModel::addExampleToBook,
-                        addedExample = false,
-                    )
-                }
-                streamingText?.let { st ->
-                    item(key = "streaming") {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    contentPadding = PaddingValues(
+                        top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 76.dp,
+                        bottom = 140.dp,
+                    ),
+                ) {
+                    items(messages, key = { it.id }) { message ->
                         MessageBubble(
-                            message = MessageEntity(
-                                conversationId = viewModel.convoId,
-                                role = "assistant",
-                                content = st,
-                                createdAt = 0,
-                            ),
-                            isStreamingPlaceholder = true,
-                            onFollowUp = {}, onDetailedSolution = {}, onHighlight = {},
-                            onAskExample = {}, onDelete = {}, onAddExample = {},
+                            message = message,
+                            actionsEnabled = streamingText == null,
+                            onFollowUp = { quoted -> showFollowUpFor = quoted },
+                            onDetailedSolution = viewModel::detailedSolution,
+                            onHighlight = viewModel::highlight,
+                            onAskExample = viewModel::askExample,
+                            onDelete = viewModel::deleteMessage,
+                            onAddExample = viewModel::addExampleToBook,
                             addedExample = false,
                         )
                     }
+                    streamingText?.let { st ->
+                        item(key = "streaming") {
+                            MessageBubble(
+                                message = MessageEntity(
+                                    conversationId = viewModel.convoId,
+                                    role = "assistant",
+                                    content = st,
+                                    createdAt = 0,
+                                ),
+                                isStreamingPlaceholder = true,
+                                onFollowUp = {}, onDetailedSolution = {}, onHighlight = {},
+                                onAskExample = {}, onDelete = {}, onAddExample = {},
+                                addedExample = false,
+                            )
+                        }
+                    }
                 }
             }
-        }
-
-        // 浮层：错误提示条（顶栏下方）
-        notice?.let { msg ->
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f)
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp)
-                    .align(Alignment.TopCenter)
-                    .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 66.dp),
-            ) {
-                Row(
-                    modifier = Modifier.padding(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+        },
+        overlay = {
+            // 浮层：错误提示条（顶栏下方，非玻璃）
+            notice?.let { msg ->
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(
+                            top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 60.dp,
+                            start = 12.dp, end = 12.dp,
+                        )
+                        .clip(IosShapes.Control)
+                        .background(
+                            if (palette.isDark) Color(0xFF44201C) else Color(0xFFFFECEA),
+                            IosShapes.Control,
+                        )
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                 ) {
-                    Text(msg, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-                    TextButton(onClick = viewModel::dismissNotice) { Text("知道了") }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            msg,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = palette.red,
+                            modifier = Modifier.weight(1f),
+                        )
+                        IosPlainButton(text = "知道了", onClick = viewModel::dismissNotice, compact = true)
+                    }
                 }
             }
-        }
 
-        // 浮层：玻璃顶栏（毛玻璃默认 / 液态玻璃 / 半透明降级）
-        GlassSurface(Modifier.fillMaxWidth().align(Alignment.TopCenter)) {
-            TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface,
-                    actionIconContentColor = MaterialTheme.colorScheme.onSurface,
-                ),
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                title = {
-                    Column {
-                        Text(conversation?.title ?: "对话", style = MaterialTheme.typography.titleMedium)
-                        Text("高等数学 · 宋老师", style = MaterialTheme.typography.labelSmall)
-                    }
-                },
-                actions = {
-                    ModeSwitchChip(
-                        current = conversation?.mode ?: "DETAIL",
-                        onSwitch = viewModel::switchMode,
+            // 玻璃顶栏（兄弟节点）：返回 + 标题 + 模式胶囊 + ⋯
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .liquidGlass(
+                        shape = com.kyant.shapes.Rectangle,
+                        surfaceColor = if (palette.isDark) Color(0xFF1C1C1E) else Color(0xFFF2F2F7),
                     )
-                    IconButton(onClick = { topMenuOpen = true }) {
-                        Icon(Icons.Filled.MoreVert, contentDescription = "更多")
-                    }
-                    DropdownMenu(expanded = topMenuOpen, onDismissRequest = { topMenuOpen = false }) {
-                        DropdownMenuItem(
-                            text = { Text("重命名对话") },
-                            onClick = { topMenuOpen = false; showRename = true },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("对话设置（考试重点/老师风格…）") },
-                            onClick = { topMenuOpen = false; onOpenConvoSettings() },
-                        )
-                    }
-                },
-            )
-        }
-
-        // 浮层：底部输入区（safeDrawing Bottom 同时覆盖导航栏与 IME，取最大值）
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
-                .padding(horizontal = 12.dp),
-        ) {
-            pendingImage?.let { (b64, _) ->
+                    .statusBarsPadding(),
+            ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                        .height(48.dp)
+                        .padding(horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // 附件缩略图：让用户确认图片确实已附加
-                    val previewBmp = remember(b64) {
-                        runCatching {
-                            val raw = android.util.Base64.decode(b64, android.util.Base64.NO_WRAP)
-                            android.graphics.BitmapFactory.decodeByteArray(raw, 0, raw.size)
-                        }.getOrNull()
-                    }
-                    previewBmp?.let {
-                        Image(
-                            bitmap = it.asImageBitmap(),
-                            contentDescription = "待发送图片",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .padding(end = 8.dp)
-                                .height(44.dp)
-                                .width(44.dp)
-                                .clip(RoundedCornerShape(8.dp)),
+                    IosBackButton(onClick = onBack)
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            conversation?.title ?: "对话",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = palette.label,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            "高等数学 · 宋老师",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = palette.secondaryLabel,
+                            maxLines = 1,
                         )
                     }
-                    Text("已附加图片（长边 1280）", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
-                    TextButton(onClick = viewModel::clearPendingImage) { Text("移除") }
+                    // 模式切换胶囊（点开 action sheet）
+                    val mode = ChatMode.entries.firstOrNull {
+                        it.name == (conversation?.mode ?: "DETAIL")
+                    } ?: ChatMode.DETAIL
+                    androidx.compose.material3.TextButton(
+                        onClick = { modeMenuOpen = true },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    ) {
+                        Text(
+                            mode.label,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = palette.blue,
+                        )
+                    }
+                    IosIconButton(
+                        icon = SfEllipsis,
+                        contentDescription = "更多",
+                        onClick = { topMenuOpen = true },
+                    )
                 }
             }
 
-            GlassSurface(
-                cornerRadius = 24.dp,
+            // 底部输入区（玻璃胶囊，兄弟节点）
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
+                    .padding(horizontal = 12.dp),
             ) {
-                ChatInputBar(
+                pendingImage?.let { (b64, _) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // 附件缩略图：确认图片确实已附加
+                        val previewBmp = remember(b64) {
+                            runCatching {
+                                val raw = android.util.Base64.decode(b64, android.util.Base64.NO_WRAP)
+                                android.graphics.BitmapFactory.decodeByteArray(raw, 0, raw.size)
+                            }.getOrNull()
+                        }
+                        previewBmp?.let {
+                            Image(
+                                bitmap = it.asImageBitmap(),
+                                contentDescription = "待发送图片",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .padding(end = 8.dp)
+                                    .height(44.dp)
+                                    .width(44.dp)
+                                    .clip(IosShapes.Small),
+                            )
+                        }
+                        Text(
+                            "已附加图片（长边 1280）",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = palette.secondaryLabel,
+                            modifier = Modifier.weight(1f),
+                        )
+                        IosPlainButton(text = "移除", onClick = viewModel::clearPendingImage, compact = true)
+                    }
+                }
+
+                // 玻璃胶囊输入条
+                ChatInputGlass(
                     draft = draft,
                     isStreaming = streamingText != null,
                     visionSupported = apiConfig.supportsVision,
                     onDraftChange = viewModel::updateDraft,
                     onSend = viewModel::send,
                     onStop = viewModel::stop,
-                    onCamera = {
-                        val dir = File(context.cacheDir, "camera").apply { mkdirs() }
-                        val file = File(dir, "capture_${System.currentTimeMillis()}.jpg")
-                        cameraUri = FileProvider.getUriForFile(context, context.packageName + ".fileprovider", file)
-                        cameraLauncher.launch(cameraUri!!)
-                    },
-                    onGallery = {
-                        galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                    },
-                    onDocument = {
-                        docLauncher.launch(arrayOf("text/plain", "text/markdown", "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
-                    },
+                    onAttach = { attachMenuOpen = true },
                 )
             }
-        }
+        },
+    )
+
+    // ── 弹层们 ──
+    if (modeMenuOpen) {
+        IosMenuSheet(
+            title = "切换模式（追加消息，不改历史）",
+            items = ChatMode.entries.map { MenuItem(it.label) },
+            onDismiss = { modeMenuOpen = false },
+            onSelect = { label ->
+                modeMenuOpen = false
+                ChatMode.entries.firstOrNull { it.label == label }?.let(viewModel::switchMode)
+            },
+        )
+    }
+    if (topMenuOpen) {
+        IosMenuSheet(
+            title = conversation?.title,
+            items = listOf(
+                MenuItem("重命名对话"),
+                MenuItem("对话设置（考试重点/老师风格…）"),
+            ),
+            onDismiss = { topMenuOpen = false },
+            onSelect = { label ->
+                topMenuOpen = false
+                when (label) {
+                    "重命名对话" -> showRename = true
+                    else -> onOpenConvoSettings()
+                }
+            },
+        )
+    }
+    if (attachMenuOpen) {
+        IosMenuSheet(
+            title = "插入附件",
+            items = listOf(
+                MenuItem("拍照", SfCamera),
+                MenuItem("相册", SfPhoto),
+                MenuItem("文档（txt/md/pdf/docx）", SfDoc),
+            ),
+            onDismiss = { attachMenuOpen = false },
+            onSelect = { label ->
+                attachMenuOpen = false
+                when (label) {
+                    "拍照" -> {
+                        val dir = File(context.cacheDir, "camera").apply { mkdirs() }
+                        val file = File(dir, "capture_${System.currentTimeMillis()}.jpg")
+                        cameraUri = FileProvider.getUriForFile(
+                            context, context.packageName + ".fileprovider", file
+                        )
+                        cameraLauncher.launch(cameraUri!!)
+                    }
+                    "相册" -> galleryLauncher.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
+                    else -> docLauncher.launch(
+                        arrayOf(
+                            "text/plain", "text/markdown", "application/pdf",
+                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        )
+                    )
+                }
+            },
+        )
     }
 
     showFollowUpFor?.let { quoted ->
@@ -366,105 +456,136 @@ fun ChatScreen(
     }
 }
 
-/** 输入栏：文本框 + 相机/相册/文档 + 发送/停止 */
+/**
+ * 输入玻璃胶囊：左侧附件圆钮（+ 打开拍照/相册/文档菜单）+ iOS 灰底文本框 +
+ * 右侧发送 paperplane 蓝色圆钮（流式中变 stop 红色圆钮）。
+ */
 @Composable
-private fun ChatInputBar(
+private fun ChatInputGlass(
     draft: String,
     isStreaming: Boolean,
     visionSupported: Boolean,
     onDraftChange: (String) -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
-    onCamera: () -> Unit,
-    onGallery: () -> Unit,
-    onDocument: () -> Unit,
+    onAttach: () -> Unit,
 ) {
+    val palette = LocalIosPalette.current
     Column(Modifier.fillMaxWidth()) {
         if (!visionSupported) {
             Text(
                 "当前模型不支持视觉输入：图片将使用本地 OCR 识别（数学公式效果不佳）",
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp),
+                color = palette.secondaryLabel,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             )
         }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 6.dp),
+                .padding(bottom = 8.dp)
+                .height(56.dp)
+                .liquidGlass(
+                    shape = IosShapes.Control,
+                    surfaceColor = if (palette.isDark) Color(0xFF1C1C1E) else Color(0xFFF2F2F7),
+                    innerShadowRadius = 6.dp,
+                )
+                .padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            IconButton(onClick = onCamera) { Icon(Icons.Filled.PhotoCamera, "拍照") }
-            IconButton(onClick = onGallery) { Icon(Icons.Filled.PhotoLibrary, "相册") }
-            IconButton(onClick = onDocument) { Icon(Icons.Filled.AttachFile, "文档") }
-            OutlinedTextField(
-                value = draft,
-                onValueChange = onDraftChange,
-                modifier = Modifier.weight(1f),
-                placeholder = { Text("问点什么…") },
-                maxLines = 4,
-            )
-            if (isStreaming) {
-                IconButton(onClick = onStop) {
-                    Icon(Icons.Filled.Stop, "停止", tint = MaterialTheme.colorScheme.error)
-                }
-            } else {
-                IconButton(onClick = onSend, enabled = draft.isNotBlank()) {
-                    Icon(Icons.Filled.Send, "发送")
-                }
-            }
-        }
-    }
-}
-
-/** 模式切换胶囊（精讲/期末冲刺），切换 = 追加消息不改 system */
-@Composable
-private fun ModeSwitchChip(current: String, onSwitch: (ChatMode) -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    val mode = ChatMode.entries.firstOrNull { it.name == current } ?: ChatMode.DETAIL
-    Box {
-        FilterChip(
-            selected = true,
-            onClick = { open = true },
-            label = { Text(mode.label, style = MaterialTheme.typography.labelMedium) },
-        )
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            ChatMode.entries.forEach { m ->
-                DropdownMenuItem(
-                    text = { Text(if (m == mode) "✓ ${m.label}" else m.label) },
-                    onClick = {
-                        open = false
-                        onSwitch(m)
-                    },
+            // 附件圆钮（灰底 + paperclip，点开附件 action sheet）
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(palette.fill, CircleShape)
+                    .clickable { onAttach() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    SfPaperclip,
+                    contentDescription = "附件",
+                    tint = palette.secondaryLabel,
+                    modifier = Modifier.size(19.dp),
                 )
             }
+            // 灰底无边框文本框
+            ChatInputTextField(
+                draft = draft,
+                onDraftChange = onDraftChange,
+                modifier = Modifier.weight(1f),
+            )
+            // 发送（蓝色 paperplane）/ 停止（红色 stop）圆钮
+            if (isStreaming) {
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(palette.fill, CircleShape)
+                        .clickable { onStop() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        SfStopCircle,
+                        contentDescription = "停止",
+                        tint = palette.red,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (draft.isNotBlank()) palette.blue else palette.fill,
+                            CircleShape,
+                        )
+                        .clickable { if (draft.isNotBlank()) onSend() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        SfPaperplane,
+                        contentDescription = "发送",
+                        tint = if (draft.isNotBlank()) Color.White else palette.tertiaryLabel,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
         }
     }
 }
 
+/** 聊天输入框：透明底 + placeholder（玻璃胶囊内） */
 @Composable
-fun SimpleTextDialog(
-    title: String,
-    initial: String,
-    onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit,
+private fun ChatInputTextField(
+    draft: String,
+    onDraftChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    var text by remember { mutableStateOf(initial) }
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-            )
+    val palette = LocalIosPalette.current
+    androidx.compose.foundation.text.BasicTextField(
+        value = draft,
+        onValueChange = onDraftChange,
+        maxLines = 4,
+        textStyle = MaterialTheme.typography.bodyLarge.copy(color = palette.label),
+        cursorBrush = androidx.compose.ui.graphics.SolidColor(palette.blue),
+        decorationBox = { inner ->
+            Box(
+                modifier = modifier,
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                if (draft.isEmpty()) {
+                    Text(
+                        "问点什么…",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = palette.tertiaryLabel,
+                    )
+                }
+                inner()
+            }
         },
-        confirmButton = {
-            TextButton(onClick = { if (text.isNotBlank()) onConfirm(text.trim()) }) { Text("确定") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
 }
 
