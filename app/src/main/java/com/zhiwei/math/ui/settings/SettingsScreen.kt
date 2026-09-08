@@ -149,15 +149,8 @@ fun SettingsScreen(
                 HorizontalDivider()
                 LiquidGlassPreview(glass)
                 if (GlassMode.fromId(glass.mode) == GlassMode.LIQUID) {
-                    GlassSlider("折射高度", glass.refractionHeight.toFloat(), 0f..80f) { v ->
-                        viewModel.updateGlass(glass.copy(refractionHeight = v.toInt()))
-                    }
-                    GlassSlider("折射量", glass.refractionAmount.toFloat(), 0f..96f) { v ->
-                        viewModel.updateGlass(glass.copy(refractionAmount = v.toInt()))
-                    }
-                    GlassSlider("模糊半径", glass.blurRadius.toFloat(), 0f..40f) { v ->
-                        viewModel.updateGlass(glass.copy(blurRadius = v.toInt()))
-                    }
+                    // 液态玻璃参数使用浮窗实测基线（折射 14dp/60dp、blur 2.5、dispersion 0.4），
+                    // 唯一可调：不透明度
                     GlassSlider("不透明度", glass.opacity.toFloat(), 30f..100f) { v ->
                         viewModel.updateGlass(glass.copy(opacity = v.toInt()))
                     }

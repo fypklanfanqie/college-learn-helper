@@ -71,6 +71,15 @@ public final class LiquidGlassimpl implements Impl {
     private long lastBlurUpdateTime = 0;
     private final Config config;
 
+    /**
+     * True while record() is drawing the target tree into our RenderNode.
+     * During that pass our own draw() must skip (return nothing) so the snapshot
+     * contains the real content BEHIND the glass instead of the glass itself.
+     * Self-inclusion would make the node's display list reference itself ->
+     * RenderThread recursion (stack overflow) on HyperOS.
+     */
+    private boolean snapshotting = false;
+
     public LiquidGlassimpl(View host, View target, Config config) {
         this.host = host;
         this.target = target;
@@ -174,6 +183,7 @@ public final class LiquidGlassimpl implements Impl {
         if (recording) return;
 
         recording = true;
+        snapshotting = true;
         try {
             Canvas rec = node.beginRecording(w, h);
             target.getLocationInWindow(tp);
@@ -184,12 +194,17 @@ public final class LiquidGlassimpl implements Impl {
         } catch (Exception e) {
             // Never let a capture pass crash the app; the next frame retries.
         } finally {
+            snapshotting = false;
             recording = false;
         }
     }
 
     @Override
     public void draw(Canvas canvas) {
+        // Exclude ourselves from our own snapshot: while the target tree is being
+        // drawn into our RenderNode, draw nothing here so the recorded pixels at
+        // our position are the real content BEHIND the glass (no self-reference).
+        if (snapshotting) return;
         if (!canvas.isHardwareAccelerated()) return;
         canvas.drawRenderNode(node);
     }

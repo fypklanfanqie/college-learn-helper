@@ -236,11 +236,12 @@ fun GlassSurface(
         mode == GlassMode.LIQUID && Build.VERSION.SDK_INT >= 33 -> {
             val density = LocalDensity.current
             val cornerPx = with(density) { cornerRadius.toPx().coerceAtLeast(8f) }
-            // 实测基线：refractionHeight 14dp、offset 60dp；滑杆在基线邻域映射
-            val refractionH = with(density) { tuning.refractionHeightDp.coerceIn(4, 28).dp.toPx() }
-            val refractionOff = with(density) { tuning.refractionAmountDp.coerceIn(0, 96).dp.toPx() }
-            // 实测基线 blur 2.5 = 滑杆 40 满值；0 = 无模糊
-            val blur = (tuning.blurRadiusDp / 16f).coerceIn(0f, 4f)
+            // 浮窗实测基线（聊天终端安卓本地 PerformanceGlassOverlay）：人家调好的就是最好的
+            val refractionH = with(density) { 14.dp.toPx() }
+            val refractionOff = with(density) { 60.dp.toPx() }
+            val blur = 2.5f
+            val dispersion = 0.4f
+            // 唯一可调：不透明度
             val tintAlpha = (tuning.opacity * 0.5f).coerceIn(0f, 0.55f)
             val tintR = if (isDark) 0.05f else 0.97f
             val tintG = if (isDark) 0.07f else 0.97f
@@ -261,19 +262,23 @@ fun GlassSurface(
                                 setTintColorGreen(tintG)
                                 setTintColorBlue(tintB)
                                 setTintAlpha(tintAlpha)
-                                // 关键：绑定兄弟采样源（GlassHost，MainActivity 装配的
-                                // ComposeView 之外的背景层）—— 源不含玻璃 → record() 无
-                                // 自引用 → 不递归不崩。结构同聊天终端安卓本地的性能浮窗
-                                // （玻璃 bind 兄弟 ComposeView、面板为其兄弟）。
+                                // 关键：bind 应用内容根（官方 demo 同款结构）。
+                                // 每帧 target.draw 快照真实 app 内容，shader 折射/色散/模糊
+                                // 其下内容 —— 参考应用同款。vendored 实现在快照期间跳过玻璃
+                                // 自身绘制（snapshotting 标志）：快照里玻璃位置 = 身后真实
+                                // 内容，无自引用 → 不会触发 HyperOS 的 RenderThread 栈溢出。
                                 // 不 bind 时库的 ensureGlass() 直接 return，玻璃不渲染。
-                                // ⚠ 不可 bind 玻璃的祖先（如 android.R.id.content）——
-                                // 快照会包含玻璃自身 → RenderThread 栈溢出（实测 fault
-                                // addr 恒定 0x7b1e6c0ff0）。
-                                val root = com.zhiwei.math.GlassHost.source()
-                                if (root != null) {
+                                // ⚠ 不可去掉 impl 的自绘排除直接 bind 祖先 —— 实测栈溢出。
+                                var actCtx = ctx
+                                while (actCtx is android.content.ContextWrapper && actCtx !is android.app.Activity) {
+                                    actCtx = actCtx.baseContext
+                                }
+                                val contentRoot = (actCtx as? android.app.Activity)
+                                    ?.findViewById<android.view.ViewGroup>(android.R.id.content)
+                                if (contentRoot != null) {
                                     post {
                                         try {
-                                            bind(root)
+                                            bind(contentRoot)
                                         } catch (e: Exception) {
                                             android.util.Log.w("GlassSurface", "bind failed: ${e.message}")
                                         }
