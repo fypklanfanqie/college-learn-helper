@@ -94,6 +94,7 @@ fun ChatListScreen(
                         items(conversations, key = { it.id }) { convo ->
                             SwipeToDelete(
                                 onDelete = { viewModel.delete(convo.id) },
+                                onClick = { onOpenChat(convo.id) },
                                 modifier = Modifier.padding(vertical = 6.dp),
                             ) {
                                 Column(
