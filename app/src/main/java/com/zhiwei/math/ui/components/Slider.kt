@@ -38,6 +38,7 @@ import com.zhiwei.math.glass.AppMotion
 import com.zhiwei.math.glass.LocalHapticsEnabled
 import com.zhiwei.math.ui.theme.IosShapes
 import com.zhiwei.math.ui.theme.LocalIosPalette
+import kotlin.math.roundToInt
 
 /**
  * iOS 滑杆：4dp 轨道（灰底 + 蓝色填充）+ 22dp 白色圆钮（阴影 + 拖动放大 1.1）。
@@ -50,14 +51,23 @@ fun IosSlider(
     valueRange: ClosedFloatingPointRange<Float>,
     modifier: Modifier = Modifier,
     onValueChangeFinished: (() -> Unit)? = null,
+    snapToIntegers: Boolean = true,
 ) {
     val palette = LocalIosPalette.current
     val haptic = LocalHapticFeedback.current
     val hapticsEnabled = LocalHapticsEnabled.current
     var dragging by remember { mutableStateOf(false) }
-    // 本地 fraction：拖动中即时跟手，外部 value 变化（预设切换）时同步
+    // 本地 fraction：拖动中滑杆是唯一权威（外部 value 异步回流【不】覆盖，防抽搐）；
+    // 非拖动时外部 value 变化（预设切换/重新进页）才同步进来
     var fraction by remember { mutableFloatStateOf(fractionOf(value, valueRange)) }
-    LaunchedEffect(value, valueRange) { fraction = fractionOf(value, valueRange) }
+    // 最近一次上报的值：松手后 fraction 吸附到它（行级取整后恰好落在整数刻度上）
+    var lastEmitted by remember { mutableFloatStateOf(value) }
+    LaunchedEffect(value, valueRange) {
+        if (!dragging) {
+            fraction = fractionOf(value, valueRange)
+            lastEmitted = value
+        }
+    }
 
     val knobScale by animateFloatAsState(
         targetValue = if (dragging) 1.1f else 1f,
@@ -82,9 +92,17 @@ fun IosSlider(
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         }
                         fraction = newFraction
-                        onValueChange(
-                            valueRange.start + newFraction * (valueRange.endInclusive - valueRange.start)
-                        )
+                        // 取整上报：整数滑杆行（玻璃参数全部 integersOnly）持久值
+                        // 与手指位置一致，回流不再产生截断偏差
+                        val raw = valueRange.start + newFraction * (valueRange.endInclusive - valueRange.start)
+                        val emitted =
+                            if (snapToIntegers) {
+                                raw.roundToInt().toFloat().coerceIn(valueRange.start, valueRange.endInclusive)
+                            } else {
+                                raw
+                            }
+                        lastEmitted = emitted
+                        onValueChange(emitted)
                     }
                 },
                 orientation = Orientation.Horizontal,
@@ -92,6 +110,8 @@ fun IosSlider(
                 onDragStarted = { dragging = true },
                 onDragStopped = {
                     dragging = false
+                    // 松手：吸附到最近一次上报值（整数刻度），回调收尾
+                    fraction = fractionOf(lastEmitted, valueRange)
                     onValueChangeFinished?.invoke()
                 },
             ),
@@ -169,7 +189,12 @@ fun GlassSliderRow(
                 color = palette.secondaryLabel,
             )
         }
-        IosSlider(value = value, onValueChange = onChange, valueRange = valueRange)
+        IosSlider(
+            value = value,
+            onValueChange = onChange,
+            valueRange = valueRange,
+            snapToIntegers = integersOnly,
+        )
         if (footnote != null) {
             Text(
                 footnote,
