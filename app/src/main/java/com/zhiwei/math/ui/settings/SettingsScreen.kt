@@ -312,67 +312,68 @@ private fun Modifier.androidClickable(
 )
 
 /**
- * 液态玻璃实时预览卡：彩色光斑打底（内容层，被本卡自己的 GlassHost 录制），
- * 玻璃面板为兄弟 overlay —— 10 项参数全部实时反映。
+ * 液态玻璃实时预览卡。
+ *
+ * ⚠ 关键教训（真机实测）：设置页本身位于 MainScaffold GlassHost 的录制树
+ * 【内部】，此处绝不能再嵌 GlassHost（layerBackdrop 录制 + 采样 = 层内容
+ * 包含自身的递归 → RenderThread 512 帧栈溢出 SIGSEGV）。改用 CanvasBackdrop：
+ * 光斑直接画进 Backdrop 对象（零录制层、零自引用），玻璃面板采样它做
+ * 真实折射/色散/模糊 —— 10 项参数全部实时反映，且布局上安全。
  */
 @Composable
 private fun LiquidGlassPreview(glass: GlassSettings) {
     val palette = com.zhiwei.math.ui.theme.LocalIosPalette.current
-    GlassHost(
+    // 光斑场绘制（背景卡与 backdrop 共用同一函数 → 视觉一致）
+    val drawBlobs: androidx.compose.ui.graphics.drawscope.DrawScope.() -> Unit = {
+        drawRect(Color(0xFF101423))
+        val blobs = listOf(
+            Triple(0.22f, 0.30f, Color(0xFFC9A87C)),
+            Triple(0.78f, 0.62f, Color(0xFF4FA5A0)),
+            Triple(0.50f, 0.92f, Color(0xFF2F6F8A)),
+        )
+        blobs.forEach { (cx, cy, color) ->
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(color.copy(alpha = 0.85f), Color.Transparent),
+                    center = androidx.compose.ui.geometry.Offset(cx * size.width, cy * size.height),
+                    radius = size.width * 0.55f,
+                ),
+                radius = size.width * 0.55f,
+                center = androidx.compose.ui.geometry.Offset(cx * size.width, cy * size.height),
+            )
+        }
+    }
+    // 无录制层 Backdrop：面板折射的就是这些光斑
+    val canvasBackdrop = com.kyant.backdrop.backdrops.rememberCanvasBackdrop(drawBlobs)
+
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .padding(16.dp)
             .height(140.dp),
-        content = {
-            // 光斑场背景：滑杆的模糊/饱和度变化在这里一目了然
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .drawBehind {
-                        drawRect(Color(0xFF101423))
-                        val blobs = listOf(
-                            Triple(0.22f, 0.30f, Color(0xFFC9A87C)),
-                            Triple(0.78f, 0.62f, Color(0xFF4FA5A0)),
-                            Triple(0.50f, 0.92f, Color(0xFF2F6F8A)),
-                        )
-                        blobs.forEach { (cx, cy, color) ->
-                            drawCircle(
-                                brush = Brush.radialGradient(
-                                    colors = listOf(color.copy(alpha = 0.85f), Color.Transparent),
-                                    center = androidx.compose.ui.geometry.Offset(
-                                        cx * size.width,
-                                        cy * size.height,
-                                    ),
-                                    radius = size.width * 0.55f,
-                                ),
-                                radius = size.width * 0.55f,
-                                center = androidx.compose.ui.geometry.Offset(cx * size.width, cy * size.height),
-                            )
-                        }
-                    },
+    ) {
+        // 光斑场背景（普通绘制层）
+        Box(Modifier.fillMaxSize().drawBehind(drawBlobs))
+        // 玻璃面板：采样 CanvasBackdrop（backdropOverride），非外层 layerBackdrop
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .padding(horizontal = 20.dp)
+                .fillMaxWidth()
+                .height(64.dp)
+                .liquidGlass(
+                    shape = com.zhiwei.math.ui.theme.IosShapes.Control,
+                    surfaceColor = if (palette.isDark) Color(0xFF1C1C1E) else Color(0xFFF2F2F7),
+                    innerShadowRadius = 6.dp,
+                    backdropOverride = canvasBackdrop,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                "玻璃预览 · 移动滑杆看变化",
+                style = MaterialTheme.typography.bodyLarge,
+                color = palette.label,
             )
-        },
-        overlay = {
-            // 玻璃面板（兄弟节点）
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(horizontal = 20.dp)
-                    .fillMaxWidth()
-                    .height(64.dp)
-                    .liquidGlass(
-                        shape = com.zhiwei.math.ui.theme.IosShapes.Control,
-                        surfaceColor = if (palette.isDark) Color(0xFF1C1C1E) else Color(0xFFF2F2F7),
-                        innerShadowRadius = 6.dp,
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    "玻璃预览 · 移动滑杆看变化",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = palette.label,
-                )
-            }
-        },
-    )
+        }
+    }
 }

@@ -204,9 +204,12 @@ fun GlassHost(
                 Box(modifier) { Box(Modifier) { content() }; overlay() }
                 return
             }
-            // 首帧渲染完成后清除打点
+            // 首帧渲染完成后清除打点：
+            // 延迟 3 帧再清——单帧 withFrameNanos 在 UI 线程帧回调即恢复，
+            // 而 RenderThread 的崩溃发生在其后（真机实测竞态导致漏检），
+            // 3 帧（~50ms）后 RenderThread 已完成渲染，崩溃必然发生在清除之前。
             LaunchedEffect(Unit) {
-                withFrameNanos { }
+                repeat(3) { withFrameNanos { } }
                 probe?.clearRenderProbe()
             }
             CompositionLocalProvider(LocalLayerBackdrop provides backdrop) {
@@ -241,6 +244,11 @@ fun GlassHost(
  * @param surfaceColor 表面着色底色（浅色用浅灰白、深色用深灰，由调用方传）
  * @param innerShadowRadius 内阴影半径（null = 无内阴影；dock 等大玻璃用 8dp）
  * @param exportedBackdrop 玻璃上玻璃：把本玻璃的合成结果导出给子玻璃采样
+ * @param backdropOverride 采样源覆盖（默认 LocalLayerBackdrop）。
+ *   设置页预览卡用它传 CanvasBackdrop（自绘光斑、零录制层）——
+ *   预览卡位于外层 GlassHost 录制树【内部】，若采样外层 layerBackdrop
+ *   会形成"层内容包含自身"的递归嵌套（真机 RenderThread 512 帧栈溢出
+ *   SIGSEGV，MiBackgroundBlurBlend 栈），故必须用无录制层的 Backdrop。
  */
 fun Modifier.liquidGlass(
     shape: Shape,
@@ -248,11 +256,12 @@ fun Modifier.liquidGlass(
     innerShadowRadius: Dp? = null,
     exportedBackdrop: LayerBackdrop? = null,
     blurOverride: Dp? = null,
+    backdropOverride: com.kyant.backdrop.Backdrop? = null,
 ): Modifier = composed {
     val mode = LocalGlassMode.current
     val config = LocalLiquidGlassConfig.current
     val isDark = LocalIsDarkTheme.current
-    val backdrop = LocalLayerBackdrop.current
+    val backdrop = backdropOverride ?: LocalLayerBackdrop.current
     val hazeState = LocalHazeState.current
     val density = LocalDensity.current
     val supportsLens = shape is RoundedRectangularShape || shape is androidx.compose.foundation.shape.CornerBasedShape
