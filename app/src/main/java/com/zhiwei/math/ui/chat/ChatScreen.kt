@@ -7,6 +7,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -60,6 +62,8 @@ import com.zhiwei.math.data.prefs.ApiConfig
 import com.zhiwei.math.data.prefs.SettingsStore
 import com.zhiwei.math.glass.GlassHost
 import com.zhiwei.math.glass.liquidGlass
+import com.zhiwei.math.glass.pressableScale
+import com.zhiwei.math.glass.rememberHaptic
 import com.zhiwei.math.prompt.ChatMode
 import com.zhiwei.math.ui.components.IosBackButton
 import com.zhiwei.math.ui.components.IosIconButton
@@ -457,8 +461,12 @@ fun ChatScreen(
 }
 
 /**
- * 输入玻璃胶囊：左侧附件圆钮（+ 打开拍照/相册/文档菜单）+ iOS 灰底文本框 +
- * 右侧发送 paperplane 蓝色圆钮（流式中变 stop 红色圆钮）。
+ * 输入玻璃胶囊（iMessage 式重排版）：
+ * - 胶囊形玻璃底（Capsule），单行 52dp，多行随内容长高（最多 4 行）；
+ * - 左：附件钮去底色（裸 paperclip，40dp 命中区，iMessage「+」式）；
+ * - 中：文本域占满剩余宽度（weight 落在 BasicTextField 上）；
+ * - 右：发送钮 40dp 圆——有字蓝底白纸飞机（按压缩放+震动），无字裸灰图标；
+ *   流式中变停止钮。
  */
 @Composable
 private fun ChatInputGlass(
@@ -471,6 +479,9 @@ private fun ChatInputGlass(
     onAttach: () -> Unit,
 ) {
     val palette = LocalIosPalette.current
+    val haptic = rememberHaptic()
+    val attachInteraction = remember { MutableInteractionSource() }
+    val sendInteraction = remember { MutableInteractionSource() }
     Column(Modifier.fillMaxWidth()) {
         if (!visionSupported) {
             Text(
@@ -484,72 +495,87 @@ private fun ChatInputGlass(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(bottom = 8.dp)
-                .height(56.dp)
+                .heightIn(min = 52.dp)
                 .liquidGlass(
-                    shape = IosShapes.Control,
+                    shape = IosShapes.Capsule,
                     surfaceColor = if (palette.isDark) Color(0xFF1C1C1E) else Color(0xFFF2F2F7),
                     innerShadowRadius = 6.dp,
                 )
-                .padding(horizontal = 8.dp),
+                .padding(horizontal = 5.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            // 附件圆钮（灰底 + paperclip，点开附件 action sheet）
+            // 附件钮：裸图标（iMessage「+」式），40dp 命中区
             Box(
                 modifier = Modifier
-                    .size(38.dp)
+                    .size(40.dp)
                     .clip(CircleShape)
-                    .background(palette.fill, CircleShape)
-                    .clickable { onAttach() },
+                    .clickable(
+                        interactionSource = attachInteraction,
+                        indication = null,
+                    ) { onAttach() },
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     SfPaperclip,
                     contentDescription = "附件",
                     tint = palette.secondaryLabel,
-                    modifier = Modifier.size(19.dp),
+                    modifier = Modifier.size(21.dp),
                 )
             }
-            // 灰底无边框文本框
+            // 文本域：weight 真正落在 BasicTextField 上，占满中间
             ChatInputTextField(
                 draft = draft,
                 onDraftChange = onDraftChange,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 4.dp),
             )
-            // 发送（蓝色 paperplane）/ 停止（红色 stop）圆钮
+            // 发送 / 停止圆钮
             if (isStreaming) {
                 Box(
                     modifier = Modifier
-                        .size(38.dp)
+                        .size(40.dp)
                         .clip(CircleShape)
                         .background(palette.fill, CircleShape)
-                        .clickable { onStop() },
+                        .clickable(
+                            interactionSource = sendInteraction,
+                            indication = null,
+                        ) { onStop() },
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         SfStopCircle,
                         contentDescription = "停止",
                         tint = palette.red,
-                        modifier = Modifier.size(22.dp),
+                        modifier = Modifier.size(24.dp),
                     )
                 }
             } else {
+                val canSend = draft.isNotBlank()
                 Box(
                     modifier = Modifier
-                        .size(38.dp)
+                        .size(40.dp)
+                        .pressableScale(sendInteraction, pressedScale = 0.9f)
                         .clip(CircleShape)
                         .background(
-                            if (draft.isNotBlank()) palette.blue else palette.fill,
+                            if (canSend) palette.blue else Color.Transparent,
                             CircleShape,
                         )
-                        .clickable { if (draft.isNotBlank()) onSend() },
+                        .clickable(
+                            interactionSource = sendInteraction,
+                            indication = null,
+                            enabled = canSend,
+                        ) {
+                            haptic()
+                            onSend()
+                        },
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         SfPaperplane,
                         contentDescription = "发送",
-                        tint = if (draft.isNotBlank()) Color.White else palette.tertiaryLabel,
-                        modifier = Modifier.size(18.dp),
+                        tint = if (canSend) Color.White else palette.tertiaryLabel,
+                        modifier = Modifier.size(if (canSend) 19.dp else 21.dp),
                     )
                 }
             }
@@ -557,7 +583,7 @@ private fun ChatInputGlass(
     }
 }
 
-/** 聊天输入框：透明底 + placeholder（玻璃胶囊内） */
+/** 聊天输入框：透明底 + placeholder（玻璃胶囊内）；modifier 直接作用于输入框本身 */
 @Composable
 private fun ChatInputTextField(
     draft: String,
@@ -568,19 +594,18 @@ private fun ChatInputTextField(
     androidx.compose.foundation.text.BasicTextField(
         value = draft,
         onValueChange = onDraftChange,
+        modifier = modifier,
         maxLines = 4,
         textStyle = MaterialTheme.typography.bodyLarge.copy(color = palette.label),
         cursorBrush = androidx.compose.ui.graphics.SolidColor(palette.blue),
         decorationBox = { inner ->
-            Box(
-                modifier = modifier,
-                contentAlignment = Alignment.CenterStart,
-            ) {
+            Box(contentAlignment = Alignment.CenterStart) {
                 if (draft.isEmpty()) {
                     Text(
                         "问点什么…",
                         style = MaterialTheme.typography.bodyLarge,
                         color = palette.tertiaryLabel,
+                        maxLines = 1,
                     )
                 }
                 inner()
