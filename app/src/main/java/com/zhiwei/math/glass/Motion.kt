@@ -9,8 +9,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.runtime.Composable
@@ -49,7 +49,9 @@ object AppMotion {
     /** iOS push 式 spring（旧导航沿用） */
     fun <T> iOSspring() = spring<T>(dampingRatio = 0.86f, stiffness = 420f)
 
-    const val NAV_DURATION = 340
+    // 转场时长（淡入淡出 + 微缩放）：200/240ms，短促干脆
+    const val NAV_FADE = 200
+    const val NAV_SCALE = 240
 }
 
 /**
@@ -96,19 +98,36 @@ fun rememberLongPressHaptic(): () -> Unit {
     }
 }
 
-/** 导航转场：新页从右滑入 + 淡入；返回时反向（iOS push/pop 观感） */
+/**
+ * 导航转场（性能优先）：淡入淡出 + 微缩放（fade-through）。
+ * 旧的全宽滑动会拖着整屏内容（含液态玻璃）逐帧位移——玻璃采样随位移逐帧
+ * 重绘，是转场掉帧的大头；淡入淡出下页面内容不位移，已渲染的玻璃层直接
+ * 以图层变换复用，转场近似零玻璃重绘成本，观感轻快（iOS sheet 式层次感）。
+ */
 fun AnimatedContentTransitionScope<NavBackStackEntry>.pushEnter(): EnterTransition =
-    slideInHorizontally(animationSpec = tween(AppMotion.NAV_DURATION, easing = AppMotion.EmphasizedEasing)) { it }
-        .plus(fadeIn(tween(AppMotion.NAV_DURATION)))
+    fadeIn(tween(AppMotion.NAV_FADE)) +
+        scaleIn(
+            initialScale = 0.94f,
+            animationSpec = tween(AppMotion.NAV_SCALE, easing = AppMotion.EmphasizedEasing),
+        )
 
 fun AnimatedContentTransitionScope<NavBackStackEntry>.pushExit(): ExitTransition =
-    slideOutHorizontally(animationSpec = tween(AppMotion.NAV_DURATION, easing = AppMotion.EmphasizedEasing)) { -it / 4 }
-        .plus(fadeOut(tween(AppMotion.NAV_DURATION)))
+    fadeOut(tween(AppMotion.NAV_FADE)) +
+        scaleOut(
+            targetScale = 0.98f,
+            animationSpec = tween(AppMotion.NAV_SCALE, easing = AppMotion.EmphasizedEasing),
+        )
 
 fun AnimatedContentTransitionScope<NavBackStackEntry>.popEnter(): EnterTransition =
-    slideInHorizontally(animationSpec = tween(AppMotion.NAV_DURATION, easing = AppMotion.EmphasizedEasing)) { -it / 4 }
-        .plus(fadeIn(tween(AppMotion.NAV_DURATION)))
+    fadeIn(tween(AppMotion.NAV_FADE)) +
+        scaleIn(
+            initialScale = 0.98f,
+            animationSpec = tween(AppMotion.NAV_SCALE, easing = AppMotion.EmphasizedEasing),
+        )
 
 fun AnimatedContentTransitionScope<NavBackStackEntry>.popExit(): ExitTransition =
-    slideOutHorizontally(animationSpec = tween(AppMotion.NAV_DURATION, easing = AppMotion.EmphasizedEasing)) { it }
-        .plus(fadeOut(tween(AppMotion.NAV_DURATION)))
+    fadeOut(tween(AppMotion.NAV_FADE)) +
+        scaleOut(
+            targetScale = 0.94f,
+            animationSpec = tween(AppMotion.NAV_SCALE, easing = AppMotion.EmphasizedEasing),
+        )

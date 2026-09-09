@@ -77,9 +77,11 @@ fun MainScaffold(
             AnimatedContent(
                 targetState = tab,
                 transitionSpec = {
-                    (fadeIn(AppMotion.snappy()) + androidx.compose.animation.slideInVertically(
-                        AppMotion.snappy(),
-                    ) { it / 24 }) togetherWith fadeOut(AppMotion.snappy())
+                    // 淡入 + 微缩放（不用位移滑动：避免页签玻璃内容逐帧重采样）
+                    (fadeIn(AppMotion.snappy()) + androidx.compose.animation.scaleIn(
+                        animationSpec = AppMotion.snappy(),
+                        initialScale = 0.97f,
+                    )) togetherWith fadeOut(AppMotion.snappy())
                 },
                 label = "tabContent",
             ) { t ->
